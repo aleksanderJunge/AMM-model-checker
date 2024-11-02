@@ -40,11 +40,6 @@ main = do
         ex3_b          = User (fromList [(AtomTok T0, 4), (AtomTok T1, 0), (AtomTok T2, 0)]) "B"
         ex3_init_state = (ex3_amms, [ex3_a, ex3_b])
         ex3_init_conf  = Configuration ex3_init_state ex3_init_state S.Empty       
-        ex3_goal = [User (fromList [(AtomTok T0, 4.0),(AtomTok T1, 0.0),(AtomTok T2, 0.0)]) "A",
-                    User (fromList [(AtomTok T0, 0.0),(AtomTok T1, 0.0),(AtomTok T2, 4.0)]) "B"]
 
-    writeFile "/tmp/amm_query.smt2" (buildSMTQuery ex3_init_conf 4 (U ("A", [(T0, 4)])))
-    --writeFile "/tmp/amm_query.smt2" (buildSMTQuery ex1_init_conf 3 (U ("A", [(T2, 2), (T1, 2), (T0, 2)])))
-    (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/amm_query.smt2"] ""
-    putStrLn stdout
-    putStrLn stderr
+    res <- checkGoal ex3_init_conf 4 [(U ("A", [(T0, 4)])),(U ("B", [(T2, 4)]))]
+    return ()

@@ -26,7 +26,8 @@ library netting-lib
     build-depends: base,
                    containers,
                    random,
-                   process
+                   process,
+                   extra
     hs-source-dirs: lib
     default-language: Haskell2010
 

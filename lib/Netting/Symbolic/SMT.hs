@@ -5,36 +5,78 @@ import Netting.Sem
 import qualified Data.Set as S
 import qualified Data.Map as M
 import Data.Maybe
+import Data.List
+import Data.Tuple.Extra
 import Data.Ratio (denominator, numerator)
+import System.Process ( readProcessWithExitCode )
+import Control.Monad
+import Control.Monad.Extra
 
 data Goal = U (String, [TokenAmt]) -- S State
 
+-- A transaction guess, we attempt to guess a shape on the transaction and backtrack if we guess wrong
+type TxGuess = (String, AtomicToken, AtomicToken)
+
+checkGoal :: Configuration -> Int -> [Goal] -> IO (Maybe (Int, [[TxGuess]])) -- TODO: return transactions
+checkGoal conf@(Configuration g s q) k goals = do
+    let tokens        = [T0, T1, T2] -- TODO: make this collect tokens from the configuration instead
+        names         = map name (snd g)
+        combinations  = [(n, t0, t1) | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1]
+        ks            = [1..k]
+        guesses       = map (getGuesses combinations) ks
+        guesses'      = map (filter check_adjacent_txns) guesses
+        k_and_guesses = zip ks guesses'
+    
+    findM (\(i, guesses) -> liftM isJust $ check_at_depth goals conf i guesses) k_and_guesses
+
+    where 
+        check_sat goal conf k guess = do
+            print $ guess
+            writeFile "/tmp/check_goal.smt2" (buildSMTQuery conf k guess goal)
+            (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
+            case take 3 stdout of
+                "sat"     -> do
+                    putStrLn stdout
+                    pure (False, stdout)
+                otherwise -> do
+                    pure (True, stderr)
+        check_at_depth goal conf k guesses = do
+            txRes <- findM (\x -> liftM (not . fst) $ check_sat goal conf k x) guesses
+            case txRes of 
+                Nothing -> do 
+                    print $ "No solution found at depth: " ++ (show k)
+                    pure Nothing
+                Just x -> do 
+                    print $ "Solution found at depth: " ++ (show k)
+                    pure $ Just x
+        getGuesses combs k = sequence $ replicate k combs
+        check_adjacent_txns [] = True
+        check_adjacent_txns (x:[]) = True
+        check_adjacent_txns ((n1, t00, t10) : (n2, t01, t11) : xs) = 
+            if (n1 == n2) && ((t00 == t01 && t10 == t11) || (t00 == t11 && t10 == t01 )) 
+                then False 
+            else check_adjacent_txns xs
+
+
+
 -- build query to check if goal is reachable within exactly k steps
-buildSMTQuery :: Configuration -> Int -> Goal -> String
-buildSMTQuery (Configuration g s q) k goal =
-    case goal of
-        U (n, amts) -> 
-            baseAxioms
-            ++ buildVars k
-            ++ constrainState s 0 -- (assuming s = g)
-            ++ constrainTxns (snd g) k
-            ++ (unlines $ map buildChainAssertions [k])
-            ++ userGoal amts n k
-            ++ sat k (map name (snd s))
-            ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [0..k-1])
-    where sat k ns = unlines
-            [ "(assert (forall ((tau Token))"
-            , "(and" ]
-            ++ unlines (map (\n -> "(>= (getBal state" ++ (show k) ++ " \"" ++ n ++ "\" tau) 0)") ns)
-            ++ ")))"
-            ++ "(check-sat)"
+buildSMTQuery :: Configuration -> Int -> [TxGuess] -> [Goal] -> String
+buildSMTQuery (Configuration g s q) k guess goals =
+    baseAxioms
+    ++ buildVars k
+    ++ constrainState s 0 -- (assuming s = g)
+    ++ constrainTxns guess k
+    ++ (unlines $ map buildChainAssertions [k])
+    ++ (unlines $ map (\(U (n, amts)) -> userGoal amts k n) goals)
+    ++ unlines ["(check-sat)"]
+    ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [0..k-1])
 
 -- a desired basket of tokens
-userGoal :: [TokenAmt] -> String -> Int -> String
-userGoal ts n k = unlines $
+userGoal :: [TokenAmt] -> Int -> String -> String
+userGoal ts k n = unlines $
     map (\(t,v) -> 
-        "(assert (= "++ (showR v) ++ " (select (select (users state" 
-        ++ (show k) ++ ") \"" ++ n ++ "\") " ++ (show t) ++ ")))") ts
+        "(assert (>= (select (select (users state" ++ (show k) 
+        ++ ") \"" ++ n ++ "\") " ++ (show t) ++ ") " ++ (showR v) ++ "))") ts
 
 showR :: Rational -> String
 showR r = "(/ " ++ (show $ numerator r) ++ " " ++ (show $ denominator r) ++ ")"
@@ -95,19 +137,29 @@ constrainUsers users i =
               (AtomTok a, v) -> Just (a, v)
               (MintTok _, _) -> Nothing
 
--- given a list of eligible transaction senders, constrains txns
-constrainTxns :: [ User ] -> Int -> String
-constrainTxns us k =
-    let ns = map name us
-        ks = [0..k-1] in
-        unlines $ (assertSender ns ks) ++ (assertAmount ks) ++ (assertDistinct ks)
+-- given a list of transaction guesses, constrains txns to match these
+constrainTxns :: [ TxGuess ] -> Int -> String
+constrainTxns guess k =
+    let ks = [0..k-1]  -- TODO: add constraint that user's last transaciton must result in a positive balanc
+        nameSet = map head . group . sort $ map fst3 guess
+        lastOccurrence = M.fromList $ map (\(n,i) -> (n, (length guess) - i - 1 )) $ map (findFstOcc 0 (reverse guess)) nameSet 
+        in
+        unlines $ (makeGuess lastOccurrence guess ks) ++ (assertAmount ks)
     where 
-        assertSender ns ks = map (\k -> unlines $
-            [ "(assert (xor"
-            , unlines $ map (\n -> "  (= (user txn" ++ (show k) ++ ") \"" ++ n ++ "\")") ns
+        findFstOcc i [] n = (n, i-1) -- TODO: figure out some decent val here
+        findFstOcc i (tx:txns) n = if n == (fst3 tx) then (n, i) else findFstOcc (i + 1) txns n
+        makeGuess lastOcc guess ks = 
+            map (\i -> unlines $
+            [ "(assert (and"
+            , if i == fromMaybe (-1) (M.lookup (fst3 $ guess !! i) lastOcc) 
+                then "(forall ((tau Token)) (>= (getBal state" ++ (show $ i + 1) 
+                     ++ " \"" ++ (fst3 $ guess !! i) ++ "\" tau) 0))"
+              else ""
+            , unlines $ ["  (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!i) ++ "\")"]
+            , unlines $ ["  (= (t (from txn" ++ (show i) ++ ")) " ++ (show . snd3 $ guess!!i) ++ ")"]
+            , unlines $ ["  (= (t (to   txn" ++ (show i) ++ ")) " ++ (show . thd3 $ guess!!i) ++ ")"]
             , "))"]) ks
         assertAmount ks = map (\i -> "(assert (> (v (from txn" ++ (show i) ++ ")) 0 ))") ks
-        assertDistinct ks = map (\i -> "(assert (distinct (t (from txn" ++ (show i) ++ ")) (t (to txn" ++ (show i) ++ "))))" ) ks
             
 -- Returns the necessary variables needed for executing i steps
 buildVars :: Int -> String
@@ -124,23 +176,10 @@ buildChainAssertions :: Int -> String
 buildChainAssertions i =
       unlines $ build_assertions i []
       where 
-          build_assertions 0 s = ammAssertions ++ s
+          build_assertions 0 s = s
           build_assertions i s = build_assertions (i - 1) 
             (unlines 
                 [ "(assert (= state" ++ (show i) ++ " (swap state" ++ (show $ i - 1) ++ " txn" ++ (show $ i - 1) ++ ")))"] : s)
-          ammAssertions = 
-            [ "(assert (forall ((tau1 Token) (tau2 Token))"
-            , "(and "
-            , "    (= (select (select (amms state0) tau1) tau2) "
-            , "       (select (select (amms state0) tau2) tau1))"
-            , "    (match (select (select (amms state0) tau1) tau2) ((nothing true)" 
-            , "    ((just a) (distinct (t (r0 a)) (t (r1 a))))))"
-            , "    (match (select (select (amms state0) tau1) tau2) ((nothing true)" 
-            , "    ((just a) (and (< 0 (v (r0 a))) (< 0 (v (r1 a)))))))"
-            , "    (match (select (select (amms state0) tau1) tau2) ((nothing true)"  
-            , "    ((just a)  "
-            , "        (xor (and (= (t (r0 a)) tau1) (= (t (r1 a)) tau2)) "
-            , "             (and (= (t (r1 a)) tau1) (= (t (r0 a)) tau2)))))))))"]
 
 
 baseAxioms :: String
