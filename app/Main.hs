@@ -41,5 +41,6 @@ main = do
         ex3_init_state = (ex3_amms, [ex3_a, ex3_b])
         ex3_init_conf  = Configuration ex3_init_state ex3_init_state S.Empty       
 
-    res <- checkGoal ex3_init_conf 4 [(U ("A", [(T0, 4)])),(U ("B", [(T2, 4)]))]
+    res' <- checkGoal ex1_init_conf 3 [(U ("A", [(T0, 2), (T1, 2), (T2, 2)])) ]
+    res  <- checkGoal ex3_init_conf 4 [(U ("A", [(T0, 4)])),(U ("B", [(T2, 4)]))]
     return ()
