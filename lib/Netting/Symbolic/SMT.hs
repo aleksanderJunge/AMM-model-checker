@@ -11,13 +11,14 @@ import Data.Ratio (denominator, numerator)
 import System.Process ( readProcessWithExitCode )
 import Control.Monad
 import Control.Monad.Extra
+import Netting.Symbolic.Concurrency
 
 data Goal = U (String, [TokenAmt]) -- S State
 
 -- A transaction guess, we attempt to guess a shape on the transaction and backtrack if we guess wrong
 type TxGuess = (String, AtomicToken, AtomicToken)
 
-checkGoal :: Configuration -> Int -> [Goal] -> IO (Maybe (Int, IO String)) -- TODO: return transactions
+checkGoal :: Configuration -> Int -> [Goal] -> IO (Maybe (Int, String)) -- TODO: return transactions
 checkGoal conf@(Configuration g s q) k goals = do
     let tokens        = [T0, T1, T2] -- TODO: make this collect tokens from the configuration instead
         token_pairs   = S.fromList $ map (\(AMM (t, _) (t', _)) -> (t,t')) (fst g)
@@ -32,23 +33,45 @@ checkGoal conf@(Configuration g s q) k goals = do
     forM to_print (\(i, g, g') -> print $ "guesses to check at depth: " ++ (show i) ++ ": " ++ 
                                            (show $ length g') ++ " (reduced from: " ++ (show $ length g) ++ ")")
 
-    satResult <- check goals conf ks guesses'
+
+    satResult <- check' goals conf ks guesses'
     case satResult of
         Nothing -> pure satResult
         res@(Just (depth, model)) -> do
             print $ "Solution found at depth: " ++ (show depth)
-            model' <- model
-            putStrLn model'
+            putStrLn model
             pure res
+    --satResult <- check goals conf ks guesses'
+    --case satResult of
+    --    Nothing -> pure satResult
+    --    res@(Just (depth, model)) -> do
+    --        print $ "Solution found at depth: " ++ (show depth)
+    --        model' <- model
+    --        putStrLn model'
+    --        pure res
 
     where 
         check goal conf [] guesses = pure Nothing
         check goal conf ks []      = pure Nothing 
         check goal conf (k:ks) (guess:guesses) = do
-                res <- check_at_depth goal conf k guess
-                case res of 
-                    Nothing  -> check goal conf ks guesses
-                    Just txs -> pure $ Just (k, liftM snd txs)
+            res <- check_at_depth goal conf k guess
+            case res of 
+                Nothing  -> check goal conf ks guesses
+                Just txs -> pure $ Just (k, liftM snd txs)
+        check' goal conf [] guesses = pure Nothing
+        check' goal conf ks []      = pure Nothing 
+        check' goal conf (k:ks) (guess:guesses) = do
+            res <- check_at_depth' goal conf k guess
+            case res of
+                Nothing -> do 
+                    print $ "No solution found at depth: " ++ (show k)
+                    check' goal conf ks guesses
+                Just out -> pure $ Just (k, out)
+        check_at_depth' goal conf k guesses = do 
+            let queries = map (buildSMTQuery conf k goal) guesses 
+                threads = zip [0..5] (take 6 queries)-- TODO: take an input number of threads to spawn & check whether 6 <= |queries|
+            initJobs <- mapM (\(tid, query) -> createJob tid query) threads
+            managePool initJobs queries
         check_at_depth goal conf k guesses = do
             txRes <- findM (\x -> liftM (not . fst) $ check_sat goal conf k x) guesses
             case txRes of 
@@ -59,7 +82,7 @@ checkGoal conf@(Configuration g s q) k goals = do
                 Just txs -> pure . Just $ check_sat goal conf k txs
         check_sat goal conf k guess = do
             --print $ guess
-            writeFile "/tmp/check_goal.smt2" (buildSMTQuery conf k guess goal)
+            writeFile "/tmp/check_goal.smt2" (buildSMTQuery conf k goal guess)
             (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
             case take 3 stdout of
                 "sat"     -> pure (False, stdout)
@@ -78,8 +101,8 @@ checkGoal conf@(Configuration g s q) k goals = do
 
 
 -- build query to check if goal is reachable within exactly k steps
-buildSMTQuery :: Configuration -> Int -> [TxGuess] -> [Goal] -> String
-buildSMTQuery (Configuration g s q) k guess goals =
+buildSMTQuery :: Configuration -> Int -> [Goal] -> [TxGuess] -> String
+buildSMTQuery (Configuration g s q) k goals guess =
     baseAxioms
     ++ buildVars k
     ++ constrainState s 0 -- (assuming s = g)

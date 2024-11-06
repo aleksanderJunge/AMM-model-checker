@@ -19,10 +19,14 @@ example1 =
             (AMM (T1, 8) (T2, 18)),
             (AMM (T2, 8) (T0, 18)) ]
 
+        --ex1_txns = 
+        --  [ Swp (Swap "A" (T2, 4.0) (T0, 0)),
+        --    Swp (Swap "A" (T0, 4.0) (T1, 0)),
+        --    Swp (Swap "A" (T1, 4.0) (T2, 0)) ]
         ex1_txns = 
-          [ Swp (Swap "A" (T2, 4.0) (T0, 0)),
-            Swp (Swap "A" (T0, 4.0) (T1, 0)),
-            Swp (Swap "A" (T1, 4.0) (T2, 0)) ]
+          [ Swp (Swap "A" (T0, 2.5) (T1, 1)),
+            Swp (Swap "A" (T1, 40/13) (T2, 1.0)),
+            Swp (Swap "A" (T2, 2.0) (T0, 1)) ]
 
         ex1_q_len      = 2
         ex1_a          = User (fromList [(AtomTok T0, 0), (AtomTok T1, 0), (AtomTok T2, 0)]) "A"
