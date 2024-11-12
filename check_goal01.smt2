@@ -93,93 +93,59 @@
 ( declare-const txn2 Txn)
 ( declare-const state3 State)
 
-( declare-const txn3 Txn)
-( declare-const state4 State)
-
-; NEW, value of each token
-( define-fun tokenValue ((t Token))
-                          Real
-    (ite (= t t0) 
-     1
-    (ite (= t t1)
-     4.5
-     100))
-)
-
-; NEW Check the net worth of a wallet
-( define-fun netWorth ((wal (Array Token Real)))
-                        Real
-( + 
-  (* (tokenValue t0) (select wal t0))
-  (* (tokenValue t1) (select wal t1))
-  (* (tokenValue t2) (select wal t2))
-))
-
-
 (assert (= (users state0) 
-(store (store baseUsers "A" (store (store (store baseWal t0 (/ 0 1)) t1 (/ 0 1)) t2 (/ 4 1))) "B" (store (store (store baseWal t0 (/ 4 1)) t1 (/ 0 1)) t2 (/ 0 1)))
+(store baseUsers "A" (store (store (store baseWal t0 (/ 0 1)) t1 (/ 0 1)) t2 (/ 0 1)))
 ))
 
 (assert (= (amms state0) 
-(store (store (store hempt t0 (store lempt t1 (just (amm (amount t0 (/ 12 1)) (amount t1 (/ 12 1)))))) t1 (store (store lempt t0 (just (amm (amount t0 (/ 12 1)) (amount t1 (/ 12 1))))) t2 (just (amm (amount t1 (/ 12 1)) (amount t2 (/ 12 1)))))) t2 (store lempt t1 (just (amm (amount t1 (/ 12 1)) (amount t2 (/ 12 1))))))
-))
-
-
-(assert (xor
-  (= (user txn0) "A")
-  (= (user txn0) "B")
-  ;(= (t (from txn0)) t1)
-  ;(= (t (to   txn0)) t0)
-))
-(assert (xor
-  (= (user txn1) "A")
-  (= (user txn1) "B")
-  ;(= (t (from txn0)) t1)
-  ;(= (t (to   txn0)) t0)
-))
-(assert (xor
-  (= (user txn2) "A")
-  (= (user txn2) "B")
-  ;(= (t (from txn0)) t1)
-  ;(= (t (to   txn0)) t0)
+(store (store (store hempt t0 (store (store lempt t1 (just (amm (amount t0 (/ 8 1)) (amount t1 (/ 18 1))))) t2 (just (amm (amount t2 (/ 8 1)) (amount t0 (/ 18 1)))))) t1 (store (store lempt t0 (just (amm (amount t0 (/ 8 1)) (amount t1 (/ 18 1))))) t2 (just (amm (amount t1 (/ 8 1)) (amount t2 (/ 18 1)))))) t2 (store (store lempt t1 (just (amm (amount t1 (/ 8 1)) (amount t2 (/ 18 1))))) t0 (just (amm (amount t2 (/ 8 1)) (amount t0 (/ 18 1))))))
 ))
 
 (assert (and
-(forall ((tau Token)) (>= (getBal state4 "B" tau) 0))
-(forall ((tau Token)) (>= (getBal state4 "A" tau) 0))
-  (xor 
-  (= (user txn3) "A")
-  (= (user txn3) "B")
-  )
+
+  (= (user txn0) "A")
+
+  (= (t (from txn0)) t0)
+
+  (= (t (to   txn0)) t1)
+
 ))
 
+(assert (and
 
-(declare-const x Real)
+  (= (user txn1) "A")
+
+  (= (t (from txn1)) t2)
+
+  (= (t (to   txn1)) t1)
+
+))
+
+(assert (and
+(forall ((tau Token)) (>= (getBal state3 "A" tau) 0))
+  (= (user txn2) "A")
+
+  (= (t (from txn2)) t0)
+
+  (= (t (to   txn2)) t2)
+
+))
 
 (assert (> (v (from txn0)) 0 ))
 (assert (> (v (from txn1)) 0 ))
 (assert (> (v (from txn2)) 0 ))
-(assert (> (v (from txn3)) 0 ))
 (assert (= state1 (swap state0 txn0)))
 
 (assert (= state2 (swap state1 txn1)))
 
 (assert (= state3 (swap state2 txn2)))
 
-(assert (= state4 (swap state3 txn3)))
 
+(assert (>= (select (select (users state3) "A") t0) (/ 2 1)))
+(assert (>= (select (select (users state3) "A") t1) (/ 2 1)))
+(assert (>= (select (select (users state3) "A") t2) (/ 2 1)))
 
-;(assert (>= (select (select (users state4) "A") t0) (/ 4 1)))
-;(assert (>= (select (select (users state4) "B") t2) (/ 4 1)))
-;(maximize x)
-;(
-
-(assert (> (netWorth (select (users state4) "B")) (netWorth (select (users state0) "B"))))
-(assert (= x (netWorth (select (users state4) "B"))))
 (check-sat)
-(set-option :pp.decimal true)
 (get-value (txn0))
 (get-value (txn1))
 (get-value (txn2))
-(get-value (txn3))
-(get-value (x))

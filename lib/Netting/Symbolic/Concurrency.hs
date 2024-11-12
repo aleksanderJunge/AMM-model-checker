@@ -17,7 +17,7 @@ waitForJob ps = do
     done <- findM (\(h, ph,i) -> getProcessExitCode ph >>= (pure . isJust)) ps
     case done of
         Nothing -> do 
-            threadDelay 100 -- TODO: Find better solution than polling every 100 microseconds?
+            threadDelay 500 -- TODO: Find better solution than polling every 100 microseconds?
             waitForJob ps --termination not guaranteed, wonderful :D
         Just (h, ph, i)  -> pure i
 

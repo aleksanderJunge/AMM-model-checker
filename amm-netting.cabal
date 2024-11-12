@@ -23,12 +23,13 @@ library netting-lib
                      Netting.Sim,
                      Netting.Worth,
                      Netting.Symbolic.SMT
-    other-modules: Netting.Symbolic.Concurrency
+    other-modules: Netting.Symbolic.Concurrency_opt
     build-depends: base,
                    containers,
                    random,
                    process,
-                   extra
+                   extra,
+                   directory
     hs-source-dirs: lib
     default-language: Haskell2010
 

@@ -11,7 +11,7 @@ import Data.Ratio (denominator, numerator)
 import System.Process ( readProcessWithExitCode )
 import Control.Monad
 import Control.Monad.Extra
-import Netting.Symbolic.Concurrency
+import Netting.Symbolic.Concurrency_opt
 
 data Goal = U (String, [TokenAmt]) -- S State
 
@@ -41,6 +41,13 @@ checkGoal conf@(Configuration g s q) k goals = do
             print $ "Solution found at depth: " ++ (show depth)
             putStrLn model
             pure res
+    --satResult <- check' goals conf ks guesses'
+    --case satResult of
+    --    Nothing -> pure satResult
+    --    res@(Just (depth, model)) -> do
+    --        print $ "Solution found at depth: " ++ (show depth)
+    --        putStrLn model
+    --        pure res
     --satResult <- check goals conf ks guesses'
     --case satResult of
     --    Nothing -> pure satResult
@@ -61,17 +68,24 @@ checkGoal conf@(Configuration g s q) k goals = do
         check' goal conf [] guesses = pure Nothing
         check' goal conf ks []      = pure Nothing 
         check' goal conf (k:ks) (guess:guesses) = do
-            res <- check_at_depth' goal conf k guess
+            res <- check_at_depth'' goal conf k guess
             case res of
                 Nothing -> do 
                     print $ "No solution found at depth: " ++ (show k)
                     check' goal conf ks guesses
                 Just out -> pure $ Just (k, out)
-        check_at_depth' goal conf k guesses = do 
-            let queries = map (buildSMTQuery conf k goal) guesses 
-                threads = zip [0..5] (take 6 queries)-- TODO: take an input number of threads to spawn & check whether 6 <= |queries|
-            initJobs <- mapM (\(tid, query) -> createJob tid query) threads
-            managePool initJobs queries
+        --check_at_depth' goal conf k guesses = do 
+        --    let queries = map (buildSMTQuery conf k False goal) guesses 
+        --        threads = zip [0..5] (take 6 queries)-- TODO: take an input number of threads to spawn & check whether 6 <= |queries|
+        --    initJobs <- mapM (\(tid, query) -> createJob tid query) threads
+        --    managePool initJobs queries
+        check_at_depth'' goal conf k guesses = do
+            let queries          = map (buildSMTQuery conf k False goal) guesses 
+                num_threads      = 6
+                (init, queries') = splitAt num_threads queries
+            workers <- createWorkers num_threads
+            initWorkers workers init
+            runOnPool workers queries'
         check_at_depth goal conf k guesses = do
             txRes <- findM (\x -> liftM (not . fst) $ check_sat goal conf k x) guesses
             case txRes of 
@@ -82,7 +96,7 @@ checkGoal conf@(Configuration g s q) k goals = do
                 Just txs -> pure . Just $ check_sat goal conf k txs
         check_sat goal conf k guess = do
             --print $ guess
-            writeFile "/tmp/check_goal.smt2" (buildSMTQuery conf k goal guess)
+            writeFile "/tmp/check_goal.smt2" (buildSMTQuery conf k True goal guess)
             (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
             case take 3 stdout of
                 "sat"     -> pure (False, stdout)
@@ -101,8 +115,8 @@ checkGoal conf@(Configuration g s q) k goals = do
 
 
 -- build query to check if goal is reachable within exactly k steps
-buildSMTQuery :: Configuration -> Int -> [Goal] -> [TxGuess] -> String
-buildSMTQuery (Configuration g s q) k goals guess =
+buildSMTQuery :: Configuration -> Int -> Bool -> [Goal] -> [TxGuess] -> String
+buildSMTQuery (Configuration g s q) k getTxns goals guess =
     baseAxioms
     ++ buildVars k
     ++ constrainState s 0 -- (assuming s = g)
@@ -111,6 +125,7 @@ buildSMTQuery (Configuration g s q) k goals guess =
     ++ (unlines $ map (\(U (n, amts)) -> userGoal amts k n) goals)
     ++ unlines ["(check-sat)"]
     ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [0..k-1])
+    ++ "~" -- This is the EOF symbol for our worker threads to stop reading
 
 -- a desired basket of tokens
 userGoal :: [TokenAmt] -> Int -> String -> String
