@@ -33,8 +33,14 @@ enqueueJob ps i query =
 createJob :: Int -> String -> IO (Handle, ProcessHandle, Int)
 createJob i query = do
     let filename = "/tmp/check_goal" ++ (show i) ++".smt2"
+        --query' = "\"" ++ (query) ++ "\""
+        --query' = "echo '" ++ (concat $ lines query) ++ "' | z3 -in"
     writeFile filename query
+    --putStrLn $ show query'
     (_, Just hout, _, pHdl) <- createProcess (proc "z3" [filename]){std_out = CreatePipe}
+    --print query'
+    --(_, Just hout, _, pHdl) <- createProcess (proc "bash"  ["-c", query']){std_out = CreatePipe}
+    --(_, Just hout, _, pHdl) <- createProcess (proc "bash"  ["-c", "echo 'hello'"]){std_out = CreatePipe}
     pure $ (hout, pHdl, i)
 
 checkJobResult :: (Handle, ProcessHandle, Int) -> IO (Bool, String)
@@ -46,7 +52,7 @@ checkJobResult (h, ph, _) = do
     where 
         readHandle hdl = hIsEOF hdl >>= \case
             False -> do
-                out <- hGetContents hdl
+                out <- hGetContents' hdl
                 pure out
             True -> do 
                 hClose hdl
@@ -67,5 +73,13 @@ managePool ps (query:qs) = do
             cleanUpPool ps
             pure $ Just out
 managePool ps [] = do
-    cleanUpPool ps
-    pure Nothing
+    check_and_clean ps
+    where 
+        check_and_clean [] = pure Nothing
+        check_and_clean (p:ps) = do
+            i <- waitForJob [p]
+            checkJobResult p >>= \case
+                (False, _) -> do terminateProcess (snd3 p); check_and_clean ps
+                (True, out) -> do 
+                    cleanUpPool ps
+                    pure $ Just out

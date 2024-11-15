@@ -1,6 +1,0 @@
-(declare-datatype Token ( (t0) (t1) ))
-(declare-const test Int)
-(assert (< test 0))
-(assert (< t0 t1))
-(check-sat)
-(get-model)

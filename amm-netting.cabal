@@ -23,7 +23,7 @@ library netting-lib
                      Netting.Sim,
                      Netting.Worth,
                      Netting.Symbolic.SMT
-    other-modules: Netting.Symbolic.Concurrency_opt
+    other-modules: Netting.Symbolic.Concurrency
     build-depends: base,
                    containers,
                    random,

@@ -11,14 +11,14 @@ import Data.Ratio (denominator, numerator)
 import System.Process ( readProcessWithExitCode )
 import Control.Monad
 import Control.Monad.Extra
-import Netting.Symbolic.Concurrency_opt
+import Netting.Symbolic.Concurrency
 
 data Goal = U (String, [TokenAmt]) -- S State
 
 -- A transaction guess, we attempt to guess a shape on the transaction and backtrack if we guess wrong
 type TxGuess = (String, AtomicToken, AtomicToken)
 
-checkGoal :: Configuration -> Int -> [Goal] -> IO (Maybe (Int, String)) -- TODO: return transactions
+checkGoal :: Configuration -> Int -> [Goal] -> IO (Maybe (Int, IO String)) -- TODO: return transactions
 checkGoal conf@(Configuration g s q) k goals = do
     let tokens        = [T0, T1, T2] -- TODO: make this collect tokens from the configuration instead
         token_pairs   = S.fromList $ map (\(AMM (t, _) (t', _)) -> (t,t')) (fst g)
@@ -34,13 +34,6 @@ checkGoal conf@(Configuration g s q) k goals = do
                                            (show $ length g') ++ " (reduced from: " ++ (show $ length g) ++ ")")
 
 
-    satResult <- check' goals conf ks guesses'
-    case satResult of
-        Nothing -> pure satResult
-        res@(Just (depth, model)) -> do
-            print $ "Solution found at depth: " ++ (show depth)
-            putStrLn model
-            pure res
     --satResult <- check' goals conf ks guesses'
     --case satResult of
     --    Nothing -> pure satResult
@@ -48,14 +41,14 @@ checkGoal conf@(Configuration g s q) k goals = do
     --        print $ "Solution found at depth: " ++ (show depth)
     --        putStrLn model
     --        pure res
-    --satResult <- check goals conf ks guesses'
-    --case satResult of
-    --    Nothing -> pure satResult
-    --    res@(Just (depth, model)) -> do
-    --        print $ "Solution found at depth: " ++ (show depth)
-    --        model' <- model
-    --        putStrLn model'
-    --        pure res
+    satResult <- check goals conf ks guesses'
+    case satResult of
+        Nothing -> pure satResult
+        res@(Just (depth, model)) -> do
+            print $ "Solution found at depth: " ++ (show depth)
+            model' <- model
+            putStrLn model'
+            pure res
 
     where 
         check goal conf [] guesses = pure Nothing
@@ -68,24 +61,24 @@ checkGoal conf@(Configuration g s q) k goals = do
         check' goal conf [] guesses = pure Nothing
         check' goal conf ks []      = pure Nothing 
         check' goal conf (k:ks) (guess:guesses) = do
-            res <- check_at_depth'' goal conf k guess
+            res <- check_at_depth' goal conf k guess
             case res of
                 Nothing -> do 
                     print $ "No solution found at depth: " ++ (show k)
                     check' goal conf ks guesses
                 Just out -> pure $ Just (k, out)
-        --check_at_depth' goal conf k guesses = do 
-        --    let queries = map (buildSMTQuery conf k False goal) guesses 
-        --        threads = zip [0..5] (take 6 queries)-- TODO: take an input number of threads to spawn & check whether 6 <= |queries|
-        --    initJobs <- mapM (\(tid, query) -> createJob tid query) threads
-        --    managePool initJobs queries
-        check_at_depth'' goal conf k guesses = do
-            let queries          = map (buildSMTQuery conf k False goal) guesses 
-                num_threads      = 6
-                (init, queries') = splitAt num_threads queries
-            workers <- createWorkers num_threads
-            initWorkers workers init
-            runOnPool workers queries'
+        check_at_depth' goal conf k guesses = do 
+            let queries = map (buildSMTQuery conf k False goal) guesses 
+                threads = zip [0..9] (take 10 queries)-- TODO: take an input number of threads to spawn & check whether 6 <= |queries|
+            initJobs <- mapM (\(tid, query) -> createJob tid query) threads
+            managePool initJobs queries
+        --check_at_depth'' goal conf k guesses = do
+        --    let queries          = map (buildSMTQuery conf k False goal) guesses 
+        --        num_threads      = 6
+        --        (init, queries') = splitAt num_threads queries
+        --    workers <- createWorkers num_threads
+        --    initWorkers workers init
+        --    runOnPool workers queries'
         check_at_depth goal conf k guesses = do
             txRes <- findM (\x -> liftM (not . fst) $ check_sat goal conf k x) guesses
             case txRes of 
@@ -95,7 +88,7 @@ checkGoal conf@(Configuration g s q) k goals = do
                 -- TODO: optimize to not run sat on this twice!
                 Just txs -> pure . Just $ check_sat goal conf k txs
         check_sat goal conf k guess = do
-            --print $ guess
+            putStrLn $ show guess
             writeFile "/tmp/check_goal.smt2" (buildSMTQuery conf k True goal guess)
             (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
             case take 3 stdout of
@@ -125,7 +118,7 @@ buildSMTQuery (Configuration g s q) k getTxns goals guess =
     ++ (unlines $ map (\(U (n, amts)) -> userGoal amts k n) goals)
     ++ unlines ["(check-sat)"]
     ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [0..k-1])
-    ++ "~" -- This is the EOF symbol for our worker threads to stop reading
+    -- ++ "~" -- This is the EOF symbol for our worker threads to stop reading
 
 -- a desired basket of tokens
 userGoal :: [TokenAmt] -> Int -> String -> String
@@ -272,10 +265,10 @@ baseAxioms = unlines $
   , "            ite (= (t (r0 foundAmmX)) (t (from swp)))"
   , "                   foundAmmX"
   , "                   (amm (r1 foundAmmX) (r0 foundAmmX)))))"
-  , "        ; Calculate payout"
+  --, "        ; Calculate payout"
   , "        (let ((payout (/ (* (v (from swp)) (v (r1 swappingAmm)))"
   , "                         (+ (v (from swp)) (v (r0 swappingAmm))))))"
-  , "              ; If swap withing x-rate, then execute, otherwise leave state unchanged"
+  --, "              ; If swap withing x-rate, then execute, otherwise leave state unchanged"
   , "             (ite (and (<= 0      (v (to swp)))"
   , "                       (<= (v (to swp)) payout))"
   , "                  (let ((oldBal (select (users state) (user swp))))"
@@ -294,11 +287,11 @@ baseAxioms = unlines $
   , "                                  (amount (t (to swp)  ) (- (v (r1 swappingAmm)) payout))"
   , "                                  ))"
   , "                         )"
-  , "                    ; return new state"
+  --, "                    ; return new state"
   , "                    (pair"
   , "                        (let ((oldTFromAmms (select (amms state) (t (from swp))))"
   , "                              (oldTToAmms   (select (amms state) (t (to swp)  ))))"
-  , "                              ; update lookup corresponding to selecting t0 -> t1"
+  --, "                              ; update lookup corresponding to selecting t0 -> t1"
   , "                             (let ((tmpamms (store (amms state ) (t (from swp))"
   , "                                (store oldTFromAmms (t (to swp)) (just newAmm)))))"
   , "                              (store tmpamms (t (to swp)) (store oldTToAmms (t (from swp)) (just newAmm)))))"

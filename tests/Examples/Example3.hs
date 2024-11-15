@@ -17,10 +17,15 @@ example3 =
           [(AMM (T0, 12) (T1, 12)), 
             (AMM (T1, 12) (T2, 12))]
         ex3_txns =
-          [ Swp (Swap "B" (T1, 6) (T2, 4)),
-            Swp (Swap "A" (T1, 6) (T0, 4)),
-            Swp (Swap "A" (T2, 4) (T1, 6)),
-            Swp (Swap "B" (T0, 4) (T1, 6)) ]
+          [ Swp (Swap "A" (T2, 4) (T1, 0)),
+            Swp (Swap "B" (T0, 4) (T1, 0)),
+            Swp (Swap "A" (T1, 3) (T0, 0)),
+            Swp (Swap "B" (T1, 3) (T2, 4)) ]
+        --ex3_txns =
+        --  [ Swp (Swap "B" (T1, 6) (T2, 4)),
+        --    Swp (Swap "A" (T1, 6) (T0, 4)),
+        --    Swp (Swap "A" (T2, 4) (T1, 6)),
+        --    Swp (Swap "B" (T0, 4) (T1, 6)) ]
         ex3_q_len      = 3
         ex3_a          = User (fromList [(AtomTok T0, 0), (AtomTok T1, 0), (AtomTok T2, 4)]) "A"
         ex3_b          = User (fromList [(AtomTok T0, 4), (AtomTok T1, 0), (AtomTok T2, 0)]) "B"
