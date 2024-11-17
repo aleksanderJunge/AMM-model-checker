@@ -97,18 +97,12 @@
 (define-fun baseWal () (Array Token Real)
 ((as const (Array Token Real)) 0.0))
 
-
 ( declare-const txn0 Txn)
 ( declare-const txn1 Txn)
-( declare-const txn2 Txn)
-( declare-const txn3 Txn)
 
 ( declare-const users0 (Array String (Array Token Real)))
 ( declare-const users1 (Array String (Array Token Real)))
 ( declare-const users2 (Array String (Array Token Real)))
-( declare-const users3 (Array String (Array Token Real)))
-( declare-const users4 (Array String (Array Token Real)))
-
 
 ( declare-const t0t1_0 Amm)
 ( declare-const t1t2_0 Amm)
@@ -119,100 +113,90 @@
 ( declare-const t0t1_2 Amm)
 ( declare-const t1t2_2 Amm)
 
-( declare-const t0t1_3 Amm)
-( declare-const t1t2_3 Amm)
 
-( declare-const t0t1_4 Amm)
-( declare-const t1t2_4 Amm)
+;######## Symbolic assertions ############
 
-(assert (= users0
-(store (store baseUsers "A" (store (store (store baseWal t0 (/ 0 1)) t1 (/ 0 1)) t2 (/ 4 1))) "B" (store (store (store baseWal t0 (/ 4 1)) t1 (/ 0 1)) t2 (/ 0 1)))
+; TOO DEMANDING IN TERMS OF COMPUTE
+;(assert (forall ((user String))
+;    (=> (not (= user "A"))
+;        (= (select users0 user) baseWal))))
+
+; BETTER:
+( declare-const walletA (Array Token Real))
+
+(assert (= users0 
+    (store baseUsers "A" walletA)
 ))
 
-(assert (= t0t1_0 (amm (amount t0 (/ 12 1)) (amount t1 (/ 12 1)))))
-(assert (= t1t2_0 (amm (amount t1 (/ 12 1)) (amount t2 (/ 12 1)))))
+; AMMs have distinct tokens
+(assert (distinct (t (r0 t0t1_0)) 
+                  (t (r1 t0t1_0))))
+
+(assert (distinct (t (r0 t1t2_0)) 
+                  (t (r1 t1t2_0))))
+
+; TODO: determine if this is hensigtsmæssigt when it comes to symbolic... how much should Haskell vs. Z3 do?
+; swapping from/to fields match the input AMM!
+(assert (= (t (from txn0)) (t (r0 t0t1_0))))
+(assert (= (t (to   txn0)) (t (r1 t0t1_0))))
+(assert (= (t (from txn1)) (t (r0 t1t2_1))))
+(assert (= (t (to   txn1)) (t (r1 t1t2_1))))
+
+; AMMs have positive reserves
+(assert (and
+    (< 0 (v (r0 t0t1_0)))
+    (< 0 (v (r1 t0t1_0)))))
 
 (assert (and
-    (> (v (from txn0)) 0 )
-    (= (user txn0) "A")
-    (= (t (from txn0)) t1)
-    (= (t (to   txn0)) t0)
-))
+    (< 0 (v (r0 t1t2_0)))
+    (< 0 (v (r1 t1t2_0)))))
 
-(assert (and
-    (> (v (from txn1)) 0 )
-    (= (user txn1) "B")
-    (= (t (from txn1)) t0)
-    (= (t (to   txn1)) t1)
-))
+; Transactions aren't rejected:
+(assert (not (= t0t1_0 t0t1_1)))
+(assert (not (= t1t2_1 t1t2_2)))
+; This is assuming that we know the AMMs that transactions are made on, from Haskell
 
-(assert (and
-    (> (v (from txn2)) 0 )
-    (= (user txn2) "B")
-    (= (t (from txn2)) t1)
-    (= (t (to   txn2)) t2)
-    ;(>= (getBal users2 "B" t1) (v (from txn2)))
-))
+;######### 'Chain' Assertions ############
 
-(assert (and
-  (> (v (from txn3)) 0 )
-  (= (user txn3) "A")
-  (= (t (from txn3)) t0)
-  (= (t (to   txn3)) t1)
-  (< (v (from txn3)) 8)
+(assert (> (v (from txn0)) 0))
+(assert (= (user txn0) "A"))
+(assert (= (t (from txn0)) t0))
+(assert (= (t (to   txn0)) t1))
 
-  ;(< (v (to   txn3)) (v (r0 t0t1_3)))
-  ;(>= (* 80000 (getBal users3 "A" t0)) (v (from txn3)))
-))
+(assert (> (v (from txn1)) 0))
+(assert (= (user txn1) "A"))
+(assert (= (t (from txn1)) t1))
+(assert (= (t (to   txn1)) t2))
 
-
-(assert (forall ((tau Token)) (>= (getBal users3 "B" tau) 0)))
-(assert (forall ((tau Token)) (>= (getBal users4 "A" tau) 0)))
-
-(assert (= users1 (snd (swaprl users0 txn0 t0t1_0))))
-(assert (= t0t1_1 (fst (swaprl users0 txn0 t0t1_0))))
+(assert (= users1 (snd (swaplr users0 txn0 t0t1_0))))
+(assert (= t0t1_1 (fst (swaplr users0 txn0 t0t1_0))))
 (assert (= t1t2_1 t1t2_0))
 
-(assert (= users2 (snd (swaplr users1 txn1 t0t1_1))))
-(assert (= t0t1_2 (fst (swaplr users1 txn1 t0t1_1))))
-(assert (= t1t2_2 t1t2_1))
+(assert (>= (select (select users1 "A") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users1 "A") t1) 0)) ; let's just assume a green state / normal AMM
+(assert (>= (select (select users1 "A") t2) 0)) ; let's just assume a green state / normal AMM
 
-(assert (= users3 (snd (swaplr users2 txn2 t1t2_2))))
-(assert (= t0t1_3 t0t1_2))
-(assert (= t1t2_3 (fst (swaplr users2 txn2 t1t2_2))))
+(assert (= users2 (snd (swaplr users1 txn1 t1t2_1))))
+(assert (= t0t1_2 t0t1_1))
+(assert (= t1t2_2 (fst (swaplr users1 txn1 t1t2_1))))
 
-(assert (= users4 (snd (swaplr users3 txn3 t0t1_3))))
-(assert (= t0t1_4 (fst (swaplr users3 txn3 t0t1_3))))
-(assert (= t1t2_4 t1t2_3))
+(assert (>= (select (select users2 "A") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users2 "A") t1) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users2 "A") t2) 0)) ; last swap... all user balances must be clean
 
 
-;(assert (and
-;        (= users1 (snd (swaprl users0 txn0 t0t1_0)))
-;        (= t0t1_1 (fst (swaprl users0 txn0 t0t1_0)))
-;        (= t1t2_1 t1t2_0)))
-;
-;(assert (and
-;        (= users2 (snd (swaplr users1 txn1 t0t1_1)))
-;        (= t0t1_2 (fst (swaplr users1 txn1 t0t1_1)))
-;        (= t1t2_2 t1t2_1)))
-;
-;(assert (and 
-;        (= users3 (snd (swaplr users2 txn2 t1t2_2)))
-;        (= t0t1_3 t0t1_2)
-;        (= t1t2_3 (fst (swaplr users2 txn2 t1t2_2)))
-;        (forall ((tau Token)) (>= (getBal users3 "B" tau) 0))))
-;
-;(assert (and
-;        (= users4 (snd (swaplr users3 txn3 t0t1_3)))
-;        (= t0t1_4 (fst (swaplr users3 txn3 t0t1_3)))
-;        (= t1t2_4 t1t2_3)
-;        (forall ((tau Token)) (>= (getBal users4 "A" tau) 0))))
-;
-(assert (>= (select (select users4 "A") t0) (/ 4 1)))
-(assert (>= (select (select users4 "B") t2) (/ 4 1)))
+; ############ Goals #############
+(assert (>= (select (select users2 "A") t0) (/ 4 1)))
 
 (check-sat)
-(get-value (txn0))
-(get-value (txn1))
-(get-value (txn2))
-(get-value (txn3))
+;(get-value (t0t1_0))
+;(get-value (t1t2_0))
+;(get-value (t0t1_1))
+;(get-value (t1t2_1))
+;(get-value (t0t1_2))
+;(get-value (t1t2_2))
+(get-value (walletA))
+(get-value (users2))
+;(get-model)
+;(get-value (txn0))
+;(get-value (txn1))

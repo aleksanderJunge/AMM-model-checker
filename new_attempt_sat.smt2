@@ -97,7 +97,6 @@
 (define-fun baseWal () (Array Token Real)
 ((as const (Array Token Real)) 0.0))
 
-
 ( declare-const txn0 Txn)
 ( declare-const txn1 Txn)
 ( declare-const txn2 Txn)
@@ -108,7 +107,6 @@
 ( declare-const users2 (Array String (Array Token Real)))
 ( declare-const users3 (Array String (Array Token Real)))
 ( declare-const users4 (Array String (Array Token Real)))
-
 
 ( declare-const t0t1_0 Amm)
 ( declare-const t1t2_0 Amm)
@@ -132,82 +130,60 @@
 (assert (= t0t1_0 (amm (amount t0 (/ 12 1)) (amount t1 (/ 12 1)))))
 (assert (= t1t2_0 (amm (amount t1 (/ 12 1)) (amount t2 (/ 12 1)))))
 
-(assert (and
-    (> (v (from txn0)) 0 )
-    (= (user txn0) "A")
-    (= (t (from txn0)) t1)
-    (= (t (to   txn0)) t0)
-))
+(assert (> (v (from txn0)) 0))
+(assert (= (user txn0) "A"))
+(assert (= (t (from txn0)) t2))
+(assert (= (t (to   txn0)) t1))
 
-(assert (and
-    (> (v (from txn1)) 0 )
-    (= (user txn1) "B")
-    (= (t (from txn1)) t0)
-    (= (t (to   txn1)) t1)
-))
+(assert (> (v (from txn1)) 0))
+(assert (= (user txn1) "B"))
+(assert (= (t (from txn1)) t0))
+(assert (= (t (to   txn1)) t1))
 
-(assert (and
-    (> (v (from txn2)) 0 )
-    (= (user txn2) "B")
-    (= (t (from txn2)) t1)
-    (= (t (to   txn2)) t2)
-    ;(>= (getBal users2 "B" t1) (v (from txn2)))
-))
+(assert (> (v (from txn2)) 0))
+(assert (= (user txn2) "A"))
+(assert (= (t (from txn2)) t1))
+(assert (= (t (to   txn2)) t0))
 
-(assert (and
-  (> (v (from txn3)) 0 )
-  (= (user txn3) "A")
-  (= (t (from txn3)) t0)
-  (= (t (to   txn3)) t1)
-  (< (v (from txn3)) 8)
+(assert (> (v (from txn3)) 0))
+(assert (= (user txn3) "B"))
+(assert (= (t (from txn3)) t1))
+(assert (= (t (to   txn3)) t2))
 
-  ;(< (v (to   txn3)) (v (r0 t0t1_3)))
-  ;(>= (* 80000 (getBal users3 "A" t0)) (v (from txn3)))
-))
+(assert (= users1 (snd (swaprl users0 txn0 t1t2_0))))
+(assert (= t0t1_1 t0t1_0))
+(assert (= t1t2_1 (fst (swaprl users0 txn0 t1t2_0))))
 
-
-(assert (forall ((tau Token)) (>= (getBal users3 "B" tau) 0)))
-(assert (forall ((tau Token)) (>= (getBal users4 "A" tau) 0)))
-
-(assert (= users1 (snd (swaprl users0 txn0 t0t1_0))))
-(assert (= t0t1_1 (fst (swaprl users0 txn0 t0t1_0))))
-(assert (= t1t2_1 t1t2_0))
+(assert (>= (select (select users1 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
 
 (assert (= users2 (snd (swaplr users1 txn1 t0t1_1))))
 (assert (= t0t1_2 (fst (swaplr users1 txn1 t0t1_1))))
 (assert (= t1t2_2 t1t2_1))
 
-(assert (= users3 (snd (swaplr users2 txn2 t1t2_2))))
-(assert (= t0t1_3 t0t1_2))
-(assert (= t1t2_3 (fst (swaplr users2 txn2 t1t2_2))))
+(assert (>= (select (select users2 "B") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users2 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
 
-(assert (= users4 (snd (swaplr users3 txn3 t0t1_3))))
-(assert (= t0t1_4 (fst (swaplr users3 txn3 t0t1_3))))
-(assert (= t1t2_4 t1t2_3))
+(assert (= users3 (snd (swaprl users2 txn2 t0t1_2))))
+(assert (= t0t1_3 (fst (swaprl users2 txn2 t0t1_2))))
+(assert (= t1t2_3 t1t2_2))
 
+(assert (>= (select (select users3 "A") t1) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users3 "B") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users3 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users3 "A") t0) 0)) ; last swap... all user's balances must be gt0
 
-;(assert (and
-;        (= users1 (snd (swaprl users0 txn0 t0t1_0)))
-;        (= t0t1_1 (fst (swaprl users0 txn0 t0t1_0)))
-;        (= t1t2_1 t1t2_0)))
-;
-;(assert (and
-;        (= users2 (snd (swaplr users1 txn1 t0t1_1)))
-;        (= t0t1_2 (fst (swaplr users1 txn1 t0t1_1)))
-;        (= t1t2_2 t1t2_1)))
-;
-;(assert (and 
-;        (= users3 (snd (swaplr users2 txn2 t1t2_2)))
-;        (= t0t1_3 t0t1_2)
-;        (= t1t2_3 (fst (swaplr users2 txn2 t1t2_2)))
-;        (forall ((tau Token)) (>= (getBal users3 "B" tau) 0))))
-;
-;(assert (and
-;        (= users4 (snd (swaplr users3 txn3 t0t1_3)))
-;        (= t0t1_4 (fst (swaplr users3 txn3 t0t1_3)))
-;        (= t1t2_4 t1t2_3)
-;        (forall ((tau Token)) (>= (getBal users4 "A" tau) 0))))
-;
+(assert (= users4 (snd (swaplr users3 txn3 t1t2_3))))
+(assert (= t0t1_4 t0t1_3))
+(assert (= t1t2_4 (fst (swaplr users3 txn3 t1t2_3))))
+
+(assert (>= (select (select users4 "B") t1) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "A") t1) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "B") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "B") t2) 0)) ; last swap... all user's balances must be gt0
+(assert (>= (select (select users3 "A") t0) 0)) ; last swap... all user's balances must be gt0
+
+; Goals
 (assert (>= (select (select users4 "A") t0) (/ 4 1)))
 (assert (>= (select (select users4 "B") t2) (/ 4 1)))
 

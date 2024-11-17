@@ -8,8 +8,7 @@ import Netting.AmmFuns
 import Netting.Sim
 import Netting.Worth
 import qualified Data.Sequence as S
-import Netting.Symbolic.SMT
-import System.Process ( readProcessWithExitCode )
+import Netting.Symbolic.SMT_opt
 
 
 main :: IO ()
