@@ -1,3 +1,4 @@
+(set-option interactive-mode true)
 ( declare-datatype Token ( ( t0 ) ( t1 ) ( t2 ) ))
 
 ( declare-datatype TokenAmount (
@@ -98,93 +99,98 @@
 ((as const (Array Token Real)) 0.0))
 
 ( declare-const txn0 Txn)
+( declare-const txn1 Txn)
+( declare-const txn2 Txn)
+( declare-const txn3 Txn)
 
 ( declare-const users0 (Array String (Array Token Real)))
 ( declare-const users1 (Array String (Array Token Real)))
+( declare-const users2 (Array String (Array Token Real)))
+( declare-const users3 (Array String (Array Token Real)))
+( declare-const users4 (Array String (Array Token Real)))
 
 ( declare-const t0t1_0 Amm)
+( declare-const t1t2_0 Amm)
+
 ( declare-const t0t1_1 Amm)
+( declare-const t1t2_1 Amm)
 
+( declare-const t0t1_2 Amm)
+( declare-const t1t2_2 Amm)
 
-;######## Symbolic assertions ############
+( declare-const t0t1_3 Amm)
+( declare-const t1t2_3 Amm)
 
-; Only solving for user A's wallet:
-( declare-const walletA (Array Token Real))
+( declare-const t0t1_4 Amm)
+( declare-const t1t2_4 Amm)
 
-(assert (= users0 
-    (store baseUsers "A" walletA)
+(assert (= users0
+(store (store baseUsers "A" (store (store (store baseWal t0 (/ 0 1)) t1 (/ 0 1)) t2 (/ 4 1))) "B" (store (store (store baseWal t0 (/ 4 1)) t1 (/ 0 1)) t2 (/ 0 1)))
 ))
 
-; AMMs have distinct tokens
-(assert (distinct (t (r0 t0t1_0)) 
-                  (t (r1 t0t1_0))))
-
-; from/to fields of txns matches the AMM to swap on!
-(assert (= (t (from txn0)) (t (r0 t0t1_0))))
-(assert (= (t (to   txn0)) (t (r1 t0t1_0))))
-
-; AMMs have positive reserves
-(assert (and
-    (< 0 (v (r0 t0t1_0)))
-    (< 0 (v (r1 t0t1_0)))))
-
-; Transactions aren't rejected:
-(assert (not (= t0t1_0 t0t1_1)))
-
-;######### 'Chain' Assertions ############
+(assert (= t0t1_0 (amm (amount t0 (/ 12 1)) (amount t1 (/ 12 1)))))
+(assert (= t1t2_0 (amm (amount t1 (/ 12 1)) (amount t2 (/ 12 1)))))
 
 (assert (> (v (from txn0)) 0))
 (assert (= (user txn0) "A"))
-(assert (= (t (from txn0)) t0))
+(assert (= (t (from txn0)) t2))
 (assert (= (t (to   txn0)) t1))
 
-(assert (= users1 (snd (swaplr users0 txn0 t0t1_0))))
-(assert (= t0t1_1 (fst (swaplr users0 txn0 t0t1_0))))
+(assert (> (v (from txn1)) 0))
+(assert (= (user txn1) "B"))
+(assert (= (t (from txn1)) t0))
+(assert (= (t (to   txn1)) t1))
 
-(assert (>= (select (select users1 "A") t0) 0))
-(assert (>= (select (select users1 "A") t1) 0))
-(assert (>= (select (select users1 "A") t2) 0))
+(assert (> (v (from txn2)) 0))
+(assert (= (user txn2) "A"))
+(assert (= (t (from txn2)) t1))
+(assert (= (t (to   txn2)) t0))
 
+(assert (> (v (from txn3)) 0))
+(assert (= (user txn3) "B"))
+(assert (= (t (from txn3)) t1))
+(assert (= (t (to   txn3)) t2))
 
-( declare-const witness Txn)
-( declare-const resultingAmm Amm)
-( assert (= t0t1_1 (fst (swaprl users1 witness t0t1_1))))
+(assert (= users1 (snd (swaprl users0 txn0 t1t2_0))))
+(assert (= t0t1_1 t0t1_0))
+(assert (= t1t2_1 (fst (swaprl users0 txn0 t1t2_0))))
 
-; ############ search for witness #############
+(assert (>= (select (select users1 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
 
-( assert (= (user witness) "A"))
-( assert (= (t (from witness)) t1))
-( assert (= (t (to   witness)) t0))
-( assert (> (v (from witness)) 0 ))
-( assert (> (v (to   witness)) 0 ))
+(assert (= users2 (snd (swaplr users1 txn1 t0t1_1))))
+(assert (= t0t1_2 (fst (swaplr users1 txn1 t0t1_1))))
+(assert (= t1t2_2 t1t2_1))
 
-(assert 
-    (exists ((v0 Real) (v1 Real))
-        (not 
-            (and
-                (= v0 (v (from txn0)))
-                (= v1 (v (to   txn0)))
-                (exists ((v2 Real) (v3 Real))
-                    (and
-                        (= v2 (v (from witness)))
-                        (= v3 (v (to   witness)))
-                        (= (pair t0t1_0 users0)
-                           (swaprl users1 
-                                   witness
-                                   t0t1_1)
-                        )
-                        (= resultingAmm (fst (swaprl users1 witness t0t1_1)))
-                   )
-                )
-            )
-        )
-    )
-)
+(assert (>= (select (select users2 "B") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users2 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
 
+(assert (= users3 (snd (swaprl users2 txn2 t0t1_2))))
+(assert (= t0t1_3 (fst (swaprl users2 txn2 t0t1_2))))
+(assert (= t1t2_3 t1t2_2))
+
+(assert (>= (select (select users3 "A") t1) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users3 "B") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users3 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users3 "A") t0) 0)) ; last swap... all user's balances must be gt0
+
+(assert (= users4 (snd (swaplr users3 txn3 t1t2_3))))
+(assert (= t0t1_4 t0t1_3))
+(assert (= t1t2_4 (fst (swaplr users3 txn3 t1t2_3))))
+
+(assert (>= (select (select users4 "B") t1) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "A") t1) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "B") t0) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "A") t2) 0)) ; swapped out, but never back in... thus must be > 0
+(assert (>= (select (select users4 "B") t2) 0)) ; last swap... all user's balances must be gt0
+(assert (>= (select (select users3 "A") t0) 0)) ; last swap... all user's balances must be gt0
+
+; Goals
+(assert (>= (select (select users4 "A") t0) (/ 4 1)))
+(assert (>= (select (select users4 "B") t2) (/ 4 1)))
 
 (check-sat)
-(get-value (t0t1_0))
-(get-value (t0t1_1))
-(get-value (txn0))
-(get-value (witness))
-(get-value (resultingAmm))
+;(get-value (txn0))
+;(get-value (txn1))
+;(get-value (txn2))
+;(get-value (txn3))
+(get-assertions)

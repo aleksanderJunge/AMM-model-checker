@@ -132,14 +132,9 @@
 (push 1)
 
 (assert 
-    (exists ((amm1 Amm))
-        (and 
-            (= amm1 t0t1_0)
-            (or 
-                (> 0 (v (r0 amm1)))
-                (> 0 (v (r1 amm1)))
-            )
-        )
+    (or 
+        (> 0 (v (r0 t0t1_0)))
+        (> 0 (v (r1 t0t1_0)))
     )
 )
 (check-sat)
@@ -154,38 +149,25 @@
 ( declare-const witness Txn)
 ( declare-const witness_amm Amm)
 
-(assert (> (v (from txn0)) 0))
-(assert (= (user txn0) "A"))
-(assert (= (t (from txn0)) t0))
-(assert (= (t (to   txn0)) t1))
-
-(assert (= witness_amm (fst (swaplr users0 txn0 t0t1_0))))
-
+(assert (= witness_amm (fst (swaplr users0 witness t0t1_0))))
 
 ; Transaction isn't rejected:
 (assert (not (= t0t1_0 witness_amm)))
 
+; swapping from/to fields match the input AMM!
+(assert (= (t (from witness)) (t (r0 t0t1_0))))
+(assert (= (t (to   witness)) (t (r1 t0t1_0))))
+
 ( assert (= (user witness) "A"))
-( assert (= (t (from witness)) t0))
-( assert (= (t (to   witness)) t1))
 ( assert (> (v (from witness)) 0 ))
-( assert (> (v (to   witness)) 0 ))
 
 ; ############ search for witness #############
 
 (assert 
-    ;(not 
-        (exists ((amm1 Amm))
-            (and 
-                (= witness_amm amm1)
-                (= amm1 (fst (swaplr users0 witness t0t1_0)))
-                (or 
-                    (> 0 (v (r0 amm1)))
-                    (> 0 (v (r1 amm1)))
-                )
-            )
-        )
-    ;)
+    (or 
+        (> 0 (v (r0 witness_amm)))
+        (> 0 (v (r1 witness_amm)))
+    )
 )
 
 (check-sat)

@@ -132,7 +132,7 @@
   (= (user txn3) "A")
   (= (t (from txn3)) t0)
   (= (t (to   txn3)) t1)
-  (>= (v (from txn3)) 8 )
+  (> (v (from txn3)) 0 )
   ;(< (v (from txn3)) 7 ) 
 ))
 

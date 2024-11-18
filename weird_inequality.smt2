@@ -106,7 +106,6 @@
   (= (t (to   txn0)) t0)
   (> (v (from txn0)) 0 )
   ;(< (v (from txn0)) 7 )
-
 ))
 
 (assert (and
@@ -136,19 +135,17 @@
   ;(< (v (from txn3)) 7 ) 
 ))
 
+
+(assert (= state1 (swap state0 txn0)))
+(assert (= state2 (swap state1 txn1)))
+(assert (= state3 (swap state2 txn2)))
+(assert (= state4 (swap state3 txn3)))
+
 (assert (forall ((tau Token)) (>= (getBal state3 "B" tau) 0)))
 (assert (forall ((tau Token)) (>= (getBal state4 "A" tau) 0)))
 
 (assert (>= (select (select (users state4) "A") t0) (/ 4 1)))
-;(assert (>= (select (select (users state4) "B") t2) (/ 4 1)))
-
-(assert (= state1 (swap state0 txn0)))
-
-(assert (= state2 (swap state1 txn1)))
-
-(assert (= state3 (swap state2 txn2)))
-
-(assert (= state4 (swap state3 txn3)))
+(assert (>= (select (select (users state4) "B") t2) (/ 4 1)))
 
 
 
