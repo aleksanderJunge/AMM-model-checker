@@ -158,28 +158,56 @@
 ( assert (> (v (from witness)) 0 ))
 ( assert (> (v (to   witness)) 0 ))
 
+; maybe assert distinctness? (add constraint to query?)
+(declare-const witness_t0 Token)
+(declare-const witness_t1 Token)
+
+; current state
+(declare-const witness_v0_s0 Real)
+(declare-const witness_v1_s0 Real)
+
+; next state
+(declare-const witness_v0_s1 Real)
+(declare-const witness_v1_s1 Real)
+
+
+
 (assert 
-    (exists ((v0 Real) (v1 Real))
-        (not 
+    (exists (not 
+        (=>
             (and
-                (= v0 (v (from txn0)))
-                (= v1 (v (to   txn0)))
-                (exists ((v2 Real) (v3 Real))
-                    (and
-                        (= v2 (v (from witness)))
-                        (= v3 (v (to   witness)))
-                        (= (pair t0t1_0 users0)
-                           (swaprl users1 
-                                   witness
-                                   t0t1_1)
-                        )
-                        (= resultingAmm (fst (swaprl users1 witness t0t1_1)))
-                   )
-                )
+                (= (select (select users0 "A") witness_t0) witness_v0_s0)
+                (= (select (select users0 "A") witness_t1) witness_v1_s0)
+                (= (select (select users1 "A") witness_t0) witness_v0_s1)
+                (= (select (select users1 "A") witness_t1) witness_v1_s1)
+                (> witness_v1_s0 witness_v1_s1)
+                (< witness_v0_s0 witness_v0_s1)
             )
-        )
-    )
-)
+            (exists
+
+        
+;(assert 
+;    (exists ((v0 Real) (v1 Real))
+;        (not 
+;            (and
+;                (= v0 (v (from txn0)))
+;                (= v1 (v (to   txn0)))
+;                (exists ((v2 Real) (v3 Real))
+;                    (and
+;                        (= v2 (v (from witness)))
+;                        (= v3 (v (to   witness)))
+;                        (= (pair t0t1_0 users0)
+;                           (swaprl users1 
+;                                   witness
+;                                   t0t1_1)
+;                        )
+;                        (= resultingAmm (fst (swaprl users1 witness t0t1_1)))
+;                   )
+;                )
+;            )
+;        )
+;    )
+;)
 
 
 (check-sat)

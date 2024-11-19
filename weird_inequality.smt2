@@ -104,7 +104,7 @@
   (= (user txn0) "A")
   (= (t (from txn0)) t1)
   (= (t (to   txn0)) t0)
-  (> (v (from txn0)) 0 )
+  (>= (v (from txn0)) 0 )
   ;(< (v (from txn0)) 7 )
 ))
 

@@ -1,4 +1,4 @@
-(set-option interactive-mode true)
+;(set-option :interactive-mode true)
 ( declare-datatype Token ( ( t0 ) ( t1 ) ( t2 ) ))
 
 ( declare-datatype TokenAmount (
@@ -193,4 +193,4 @@
 ;(get-value (txn1))
 ;(get-value (txn2))
 ;(get-value (txn3))
-(get-assertions)
+;(get-assertions)

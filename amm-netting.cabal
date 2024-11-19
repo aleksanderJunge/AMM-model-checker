@@ -20,10 +20,10 @@ version:            0.1.0.0
 library netting-lib
     exposed-modules: Netting.AmmFuns,
                      Netting.Sem,
-                     Netting.Sim,
-                     Netting.Worth,
-                     Netting.Symbolic.SMT_opt
-    other-modules: Netting.Symbolic.Concurrency
+                     Netting.Symbolic.Basics,
+                     Netting.Symbolic.SymSem
+                     -- Netting.Symbolic.SMT_opt
+    -- other-modules: Netting.Symbolic.Concurrency
     build-depends: base,
                    containers,
                    random,
