@@ -19,6 +19,11 @@ makeAmm (SAMM n (v, t) (v', t')) =
     where 
         decl_t get_r name = return [Dec $ DeclVar name TToken, Ass . Assert $ eq (Var name) (gett . get_r $ Var n)]
         decl_v get_r name = return [Dec $ DeclVar name TReal,  Ass . Assert $ eq (Var name) (getv . get_r $ Var n)]
+
+
+-- given a list of names, declares these to be the set of tokens
+declToks :: SToks -> String
+declToks (SToks toks) = "(declare-datatype Token "++ (concat $ intersperse " " $ map (\x -> '(':x ++ ")") toks) ++ "))"
         
 showStmts :: [SMTStmt Decl Assert] -> String
 showStmts stmts = 

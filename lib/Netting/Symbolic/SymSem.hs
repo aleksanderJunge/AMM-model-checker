@@ -2,6 +2,8 @@
 
 module Netting.Symbolic.SymSem where
 
+import Netting.Symbolic.Utils
+
 import Data.List.Extra
 import Data.Char
 
@@ -29,6 +31,7 @@ instance Show Decl where
     show = \case
         DeclVar s t -> "(declare-const " ++ s ++ " " ++ show t ++ ")"
         DeclFun s t1 t2 -> "(declare-fun " ++ s ++ " (" ++ show t1 ++ ") " ++ show t2 ++ ")"
+        --TODO: DeclData s...
 
 data UnOp
     = Not
@@ -140,19 +143,24 @@ data SAMM = SAMM
     { ammName :: String
     , r0      :: (Maybe String, Maybe String)
     , r1      :: (Maybe String, Maybe String) }
+
+readUntil :: Char -> String -> (String, String)
+readUntil c input = 
+    case span (/= c) input of
+        (h, _:rest) -> (h, rest)
+        _           -> ("!", "")
     
 instance Read SAMM where
     readsPrec _ ('A':'M':'M':input) = 
-        let (name, _:rest1) = span (/= '(') input
-            (t0, _:rest2) = span (/= ':') rest1
-            (v0, _:rest3) = span (/= ',') rest2
-            (t1, _:rest4) = span (/= ':') rest3
-            (v1, _:rest)  = span (/= ')') rest4
-        in 
-            if (not . null) name && all (\c -> isAlpha c || elem c "\'_") name
-                                 && all isValid [t0, v0, t1, v1]
-            then [(SAMM name (toName t0, toName v0) (toName t1, toName v1), rest)]
-            else []
+        let (name, rest1) = readUntil '(' input in if name == "!" then [] else
+        let (t0,   rest2) = readUntil ':' rest1 in if t0   == "!" then [] else
+        let (v0,   rest3) = readUntil ',' rest2 in if v0   == "!" then [] else
+        let (t1,   rest4) = readUntil ':' rest3 in if t1   == "!" then [] else
+        let (v1,   rest)  = readUntil ')' rest4 in if v1   == "!" then [] else
+        if (not . null) name && all (\c -> isAlpha c || elem c "\'_") name
+                             && all isValid [t0, v0, t1, v1]
+        then [(SAMM name (toName t0, toName v0) (toName t1, toName v1), rest)]
+        else []
         where 
             isValid s = --we allow either blank (for Nothing) or alphanumeric names for (Just) variables
                 s == "" || s == "_" || all (\c -> isAlpha c || c == '\'') s
@@ -161,10 +169,19 @@ instance Read SAMM where
             toName x = pure x
     readsPrec _ _ = [] -- no parse 
     
+data SToks = SToks [String]
+
+instance Read SToks where
+    readsPrec _ ('T':'O':'K':'S':input) = 
+        let (h, rest1  ) = readUntil '(' input in if h    == "!" then [] else
+        let (toks, rest) = readUntil ')' input in if toks == "!" then []
+        else [(SToks $ words toks, rest)]
+    readsPrec _ _ = []
+    
 data SUser = SUser
     { wallet :: Maybe String
     , name   :: String }
-    
+   
 data STxn = STxn
     { sender :: Maybe String
     , from   :: (Maybe String, Maybe String)
