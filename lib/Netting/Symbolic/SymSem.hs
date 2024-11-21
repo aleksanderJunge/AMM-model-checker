@@ -4,8 +4,16 @@ module Netting.Symbolic.SymSem where
 
 import Netting.Symbolic.Utils
 
+import Text.Read
 import Data.List.Extra
 import Data.Char
+import Debug.Trace
+import Data.Ratio
+
+import qualified GHC.Utils.Misc as Util
+
+showR :: Rational -> String
+showR r = "(/ " ++ (show $ numerator r) ++ " " ++ (show $ denominator r) ++ ")"
 
 data DeclType
     = TReal
@@ -105,6 +113,7 @@ select   = BinOp Select
 data Expr
     = Var String
     | LReal Rational -- TODO: check
+    | LTok String
     | LBool Bool
     | UnOp  UnOp  Expr
     | BinOp BinOp Expr Expr
@@ -122,7 +131,8 @@ makeExp ss = "(" ++ unwords ss ++ ")"
 instance Show Expr where
     show = \case
         Var s                   -> s
-        LReal n                 -> show n -- TODO: show how? division or decimal
+        LReal r                 -> showR r -- TODO: show how? division or decimal
+        LTok t                  -> t
         LBool b                 -> lower $ show b
         UnOp  op e1             -> makeExp [show op, show e1]
         BinOp op e1 e2          -> makeExp [show op, show e1, show e2]
@@ -141,32 +151,44 @@ data SMTStmt a b = Dec a | Ass b
 -- we only provide input for t, v, and wallet if those are to be "named" and constrained, otherwise leave unconstrained
 data SAMM = SAMM
     { ammName :: String
-    , r0      :: (Maybe String, Maybe String)
-    , r1      :: (Maybe String, Maybe String) }
+    , r0      :: (Maybe Rational, Maybe String)
+    , r1      :: (Maybe Rational, Maybe String) }
 
 readUntil :: Char -> String -> (String, String)
 readUntil c input = 
     case span (/= c) input of
-        (h, _:rest) -> (h, rest)
+        (h, _:rest) -> (concat $ words h, rest)
         _           -> ("!", "")
-    
+
+-- like ReadUntil, but will return an error if it reads more than two words before encountering the breaker
+readTokUntil :: Char -> String -> (String, String)
+readTokUntil c input = 
+    case span (/= c) input of
+        (h, _:rest) ->
+            if ((>1) . length . words) h then ("!", "") else (concat $ words h, rest)
+        _           -> ("!", "")
+
 instance Read SAMM where
     readsPrec _ ('A':'M':'M':input) = 
-        let (name, rest1) = readUntil '(' input in if name == "!" then [] else
-        let (t0,   rest2) = readUntil ':' rest1 in if t0   == "!" then [] else
-        let (v0,   rest3) = readUntil ',' rest2 in if v0   == "!" then [] else
-        let (t1,   rest4) = readUntil ':' rest3 in if t1   == "!" then [] else
-        let (v1,   rest)  = readUntil ')' rest4 in if v1   == "!" then [] else
-        if (not . null) name && all (\c -> isAlpha c || elem c "\'_") name
-                             && all isValid [t0, v0, t1, v1]
-        then [(SAMM name (toName t0, toName v0) (toName t1, toName v1), rest)]
+        let (name, rest1) = readTokUntil '(' input in if name == "!" then [] else
+        let (v0,   rest2) = readTokUntil ':' rest1 in if v0   == "!" then [] else
+        let (t0,   rest3) = readTokUntil ',' rest2 in if t0   == "!" then [] else
+        let (v1,   rest4) = readTokUntil ':' rest3 in if v1   == "!" then [] else
+        let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
+        if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
+                             && all isToken [t0, t1]
+                             && all isRatio [v0, v1]
+        then [(SAMM name (toVal v0, toName t0) (toVal v1, toName t1), rest)]
         else []
         where 
-            isValid s = --we allow either blank (for Nothing) or alphanumeric names for (Just) variables
-                s == "" || s == "_" || all (\c -> isAlpha c || c == '\'') s
-            toName ""  = Nothing
+            isRatio "" = False
+            isRatio r  = all (\c -> isNumber c || c == '%') r || r == "_"
+            isToken "" = False
+            isToken s  = s == "_" || all isAlphaNum s
             toName "_" = Nothing
-            toName x = pure x
+            toName x   = pure x
+            toVal  "_" = Nothing
+            toVal  v   = readMaybe v :: Maybe Rational
     readsPrec _ _ = [] -- no parse 
     
 data SToks = SToks [String]
@@ -174,13 +196,19 @@ data SToks = SToks [String]
 instance Read SToks where
     readsPrec _ ('T':'O':'K':'S':input) = 
         let (h, rest1  ) = readUntil '(' input in if h    == "!" then [] else
-        let (toks, rest) = readUntil ')' input in if toks == "!" then []
-        else [(SToks $ words toks, rest)]
+        let (toks, rest) = readUntil ')' input in if toks == "!" then [] else
+        let toks' = Util.split ',' toks in
+        if (any (\x -> ((> 1) . length) $ words x) toks') then [] else 
+        [(SToks toks', rest)]
     readsPrec _ _ = []
     
 data SUser = SUser
-    { wallet :: Maybe String
+    { wallet :: [Maybe String]
     , name   :: String }
+    
+--instance Read SUser where
+--    readsPrec _ ('U':'S':'E':'R':input) = 
+
    
 data STxn = STxn
     { sender :: Maybe String

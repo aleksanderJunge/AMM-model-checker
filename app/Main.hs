@@ -16,9 +16,6 @@ import System.IO
 
 main :: IO ()
 main = do
-  let samm = SAMM "t0t1_0" (Just "t", Nothing) (Nothing, Nothing)
-      smtrepresentation = makeAmm samm
-  putStrLn $ showStmts smtrepresentation
   repl
   return ()
   where 
@@ -26,22 +23,18 @@ main = do
       putStr ">> "
       hFlush stdout
       line <- getLine
-      let justRead = words line -- TODO: make data types read whole line (name should be broken by whitespace)
-      if elem "bye" justRead then return ()
-      else do
-        let toParse = concat justRead
-        case readMaybe toParse :: Maybe SAMM of
-          Just samm -> do
-            putStrLn $ showStmts $ makeAmm samm
-            repl
-          Nothing ->
-            case readMaybe line :: Maybe SToks of 
-              Just toks -> do
-                putStrLn $ declToks toks
-                repl
-              Nothing -> do
-                putStrLn $ "Didn't catch that: " ++ line
-                repl
+      case readMaybe line :: Maybe SAMM of
+        Just samm -> do
+          putStrLn $ showStmts $ makeAmm samm
+          repl
+        Nothing ->
+          case readMaybe line :: Maybe SToks of 
+            Just toks -> do
+              putStrLn $ declToks toks
+              repl
+            Nothing -> do
+              putStrLn $ "Didn't catch that: " ++ line
+              repl
     --let ex1_amms = 
     --      [(AMM (T0, 8) (T1, 18)),
     --       (AMM (T1, 8) (T2, 18)),

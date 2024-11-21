@@ -29,7 +29,8 @@ library netting-lib
                    random,
                    process,
                    extra,
-                   directory
+                   directory,
+                   ghc
     hs-source-dirs: lib
     default-language: Haskell2010
 
