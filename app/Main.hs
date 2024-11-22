@@ -1,7 +1,7 @@
 module Main where
 
 import Control.Monad
-import Data.Map
+--import Data.Map
 import Data.Maybe
 import Netting.Sem
 import Netting.AmmFuns
@@ -9,6 +9,7 @@ import Netting.AmmFuns
 --import Netting.Symbolic.SMT_opt
 import Netting.Symbolic.Basics
 import Netting.Symbolic.SymSem
+import Netting.SymTab
 import Text.Read
 
 import System.IO
@@ -16,25 +17,29 @@ import System.IO
 
 main :: IO ()
 main = do
-  repl
+  let symtab = empty :: Env String SType
+  repl symtab
   return ()
   where 
-    repl = do
+    repl stab = do
       putStr ">> "
       hFlush stdout
       line <- getLine
       case readMaybe line :: Maybe SAMM of
         Just samm -> do
-          putStrLn $ showStmts $ makeAmm samm
-          repl
+          case makeAmm samm stab of
+            Left e -> do {putStrLn e; repl stab}
+            Right (r, stab') -> do {putStrLn $ showStmts r; repl stab'}
         Nothing ->
           case readMaybe line :: Maybe SToks of 
             Just toks -> do
-              putStrLn $ declToks toks
-              repl
+              putStrLn $ show toks
+              case declToks toks stab of
+                Left e -> do {putStrLn e; repl stab}
+                Right (r, stab') -> do {putStrLn r; repl stab'}
             Nothing -> do
               putStrLn $ "Didn't catch that: " ++ line
-              repl
+              repl stab
     --let ex1_amms = 
     --      [(AMM (T0, 8) (T1, 18)),
     --       (AMM (T1, 8) (T2, 18)),

@@ -191,12 +191,12 @@ instance Read SAMM where
             toVal  v   = readMaybe v :: Maybe Rational
     readsPrec _ _ = [] -- no parse 
     
-data SToks = SToks [String]
+data SToks = SToks [String] deriving (Show)
 
 instance Read SToks where
     readsPrec _ ('T':'O':'K':'S':input) = 
         let (h, rest1  ) = readUntil '(' input in if h    == "!" then [] else
-        let (toks, rest) = readUntil ')' input in if toks == "!" then [] else
+        let (toks, rest) = readUntil ')' rest1 in if toks == "!" then [] else
         let toks' = Util.split ',' toks in
         if (any (\x -> ((> 1) . length) $ words x) toks') then [] else 
         [(SToks toks', rest)]

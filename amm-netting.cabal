@@ -20,6 +20,7 @@ version:            0.1.0.0
 library netting-lib
     exposed-modules: Netting.AmmFuns,
                      Netting.Sem,
+                     Netting.SymTab,
                      Netting.Symbolic.Basics,
                      Netting.Symbolic.SymSem
                      -- Netting.Symbolic.SMT_opt
