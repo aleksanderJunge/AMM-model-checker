@@ -14,7 +14,6 @@ import Text.Read
 
 import System.IO
 
-
 main :: IO ()
 main = do
   let symtab = empty :: Env String SType
@@ -33,13 +32,18 @@ main = do
         Nothing ->
           case readMaybe line :: Maybe SToks of 
             Just toks -> do
-              putStrLn $ show toks
               case declToks toks stab of
                 Left e -> do {putStrLn e; repl stab}
                 Right (r, stab') -> do {putStrLn r; repl stab'}
             Nothing -> do
-              putStrLn $ "Didn't catch that: " ++ line
-              repl stab
+              case readMaybe line :: Maybe SUser of 
+                Just user ->
+                  case makeUser user stab of
+                    Left e -> do {putStrLn e; repl stab}
+                    Right (r, stab') -> do {putStrLn $ showStmts r; repl stab'}
+                Nothing -> do
+                  putStrLn $ "Didn't catch that: " ++ line
+                  repl stab
     --let ex1_amms = 
     --      [(AMM (T0, 8) (T1, 18)),
     --       (AMM (T1, 8) (T2, 18)),

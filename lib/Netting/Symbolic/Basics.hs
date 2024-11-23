@@ -7,6 +7,9 @@ import Netting.Symbolic.SymSem
 import Data.Maybe
 import Data.List
 import Data.Either
+import qualified Data.Map as M
+
+import qualified GHC.Utils.Misc as Util
 
 -- TODO: use nub for set operations!
 
@@ -33,6 +36,28 @@ makeAmm (SAMM n (v, t) (v', t')) stab =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
         checkTok stab Nothing = True -- If token isn't declared, it's fine
+
+makeUser :: SUser -> Env String SType -> Either String ([SMTStmt Decl Assert], Env String SType)
+makeUser (SUser wal n) stab =
+    if isJust (get stab n) then Left $ n ++ " already declared!"
+    else if any (\t -> not $ checkTok stab t) (map fst wal)  then Left $ " one or more tokens not found in: " ++ show stab
+    else if length (map fst wal) /= length (nub $ map fst wal) then Left " some tokens are declared twice"
+    else 
+    let user_name = singleton . Dec $ DeclVar n (TArray TToken TReal) -- nest this inside a TArray TUser
+        wal_dom   = nub $ map fst wal
+        stab_dom  = nub $ map fst (filter (\(k,v) -> v == DTok) (M.toList stab))
+        undef     = stab_dom \\ wal_dom -- these will be set to 0
+        conc_wal  = Util.mapSnd fromJust (filter (\(k,v) -> isJust v) wal)
+        symb_wal  = filter (\(k,v) -> isNothing v) wal
+        conc_ass  = concat $ map (\(t,v) -> [Ass . Assert $ eq (select (Var n) (LTok t)) (LReal v)]) conc_wal
+        symb_ass  = concat $ map (\(t,_) -> [Dec $ DeclVar (n ++ "_" ++ t) TReal, Ass . Assert $ eq (select (Var n) (LTok t)) (Var $ n ++ "_" ++ t)]) symb_wal
+        undef_ass = concat $ map (\t     -> [Ass . Assert $ eq (select (Var n) (LTok t)) (LReal 0)]) undef
+        stab' = bind stab (n, DUser)
+    in Right (user_name ++ conc_ass ++ symb_ass ++ undef_ass, stab')
+    where 
+        checkTok stab tok_name =
+            let tt = get stab tok_name in
+            if isJust tt && (fromJust tt == DTok) then True else False
 
 -- given a list of names, declares these to be the set of tokens
 declToks :: SToks -> Env String SType -> Either String (String, Env String SType)

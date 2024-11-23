@@ -9,6 +9,9 @@ import Data.List.Extra
 import Data.Char
 import Debug.Trace
 import Data.Ratio
+import Data.Maybe
+import Data.Tuple
+import qualified Data.Map as M
 
 import qualified GHC.Utils.Misc as Util
 
@@ -157,7 +160,7 @@ data SAMM = SAMM
 readUntil :: Char -> String -> (String, String)
 readUntil c input = 
     case span (/= c) input of
-        (h, _:rest) -> (concat $ words h, rest)
+        (h, _:rest) -> (h, rest)
         _           -> ("!", "")
 
 -- like ReadUntil, but will return an error if it reads more than two words before encountering the breaker
@@ -182,7 +185,12 @@ instance Read SAMM where
         else []
         where 
             isRatio "" = False
-            isRatio r  = all (\c -> isNumber c || c == '%') r || r == "_"
+            --isRatio r  = all (\c -> isNumber c || c == '%') r || r == "_"
+            isRatio r  = 
+                if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
+                case Util.split '%' r of 
+                    (num:den:[]) | all isNumber num && all isNumber den -> True
+                    _ -> False
             isToken "" = False
             isToken s  = s == "_" || all isAlphaNum s
             toName "_" = Nothing
@@ -194,20 +202,56 @@ instance Read SAMM where
 data SToks = SToks [String] deriving (Show)
 
 instance Read SToks where
-    readsPrec _ ('T':'O':'K':'S':input) = 
+    readsPrec _ ('T':'O':'K':'E':'N':'S':input) = 
         let (h, rest1  ) = readUntil '(' input in if h    == "!" then [] else
         let (toks, rest) = readUntil ')' rest1 in if toks == "!" then [] else
-        let toks' = Util.split ',' toks in
-        if (any (\x -> ((> 1) . length) $ words x) toks') then [] else 
-        [(SToks toks', rest)]
+        let toks'  = Util.split ',' toks
+            toks'' = map (filter (\c -> c /= ' ')) toks'
+        in 
+            if (any (\x -> ((> 1) . length) $ words x) toks') then [] else 
+            if any (\s -> null s || all (\c -> c == ' ') s) toks'' then [] else
+        [(SToks $ toks'', rest)]
     readsPrec _ _ = []
     
 data SUser = SUser
-    { wallet :: [Maybe String]
-    , name   :: String }
+    { wallet :: [(String, (Maybe Rational))]
+    , name   ::  String }
+    deriving (Show)
+
+instance Read SUser where
+    readsPrec _ ('U':'S':'E':'R':input) = 
+        let (name, rest1) = readTokUntil '(' input in if name == "!" then [] else
+        let (wal, rest)   = readUntil    ')' rest1 in if wal  == "!" then [] else
+        let wal'  = Util.split ',' wal
+            wal'' = map parsePair wal'
+        in
+        if (not . null) name && all (\c -> isAlphaNum c || c == '_') name 
+                             && all isJust wal'' 
+        then let wal''' = map swap (Util.mapFst toR (map fromJust wal''))
+             in [( SUser wal''' name, rest)]
+        else []
+            where
+                toR s = readMaybe s :: Maybe Rational
+                parsePair s | all (flip elem " \n\t") s = Nothing
+                parsePair s  = 
+                    case Util.split ':' s of
+                        (v:t:[]) -> 
+                            let v' = concat $ words v
+                                t' = concat $ words t in 
+                                    if isToken t' && isRatio v' then Just (v', t')
+                                    else Nothing
+                        otherwise -> Nothing
+                    where 
+                        isRatio "" = False
+                        isRatio r  = 
+                            if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
+                            case Util.split '%' r of 
+                                (num:den:[]) | all isNumber num && all isNumber den -> True
+                                _ -> False
+                        isToken "" = False
+                        isToken s  = all isAlphaNum s -- TODO: allow symbolic tokens in the wallet? or ludacris
+    readsPrec _ _ = []
     
---instance Read SUser where
---    readsPrec _ ('U':'S':'E':'R':input) = 
 
    
 data STxn = STxn
