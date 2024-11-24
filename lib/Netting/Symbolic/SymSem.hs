@@ -15,9 +15,6 @@ import qualified Data.Map as M
 
 import qualified GHC.Utils.Misc as Util
 
-showR :: Rational -> String
-showR r = "(/ " ++ (show $ numerator r) ++ " " ++ (show $ denominator r) ++ ")"
-
 data DeclType
     = TReal
     | TToken
@@ -58,9 +55,17 @@ instance Show UnOp where
         T   -> "t"
         V   -> "v"
 
+instance Read UnOp where
+    readsPrec _ ('n':'o':'t':[]) = [(Not, "")]
+    readsPrec _ ('r':'0':[])     = [(R0, "")]
+    readsPrec _ ('r':'1':[])     = [(R1, "")]
+    readsPrec _ ('t':[])         = [(T, "")]
+    readsPrec _ ('v':[])         = [(V, "")]
+    readsPrec _ _ = []
+
 data BinOp
     = Add | Mul | Sub | Div
-    | Lt | Gt | Eq | Or | And | Distinct
+    | Lt | Gt | Eq | Gteq | Or | And | Distinct
     | Xor | Implies
     | Select
     deriving (Eq, Ord)
@@ -73,6 +78,7 @@ instance Show BinOp where
         Div -> "/"
         Lt -> "<"
         Gt -> ">"
+        Gteq -> ">="
         Eq -> "="
         Or -> "or"
         And -> "and"
@@ -80,6 +86,32 @@ instance Show BinOp where
         Xor -> "xor"
         Implies -> "=>"
         Select -> "select"
+
+instance Read BinOp where
+    readsPrec _ ('+':[])     = [(Add, "")]
+    readsPrec _ ('*':[])     = [(Mul, "")]
+    readsPrec _ ('-':[])     = [(Sub, "")]
+    readsPrec _ ('/':[])     = [(Div, "")]
+    readsPrec _ ('<':[])     = [(Lt, "")]
+    readsPrec _ ('>':[])     = [(Gt, "")]
+    readsPrec _ ('=':[])     = [(Eq, "")]
+    readsPrec _ ('>':'=':[]) = [(Gteq, "")]
+    readsPrec _ ('|':'|':[]) = [(Or, "")]
+    readsPrec _ ('&':'&':[]) = [(And, "")]
+    readsPrec _ ('/':'=':[]) = [(Distinct, "")]
+    readsPrec _ ('=':'>':[]) = [(Implies, "")]
+    readsPrec _ _ = []
+
+parenPairs' :: String -> [(Int, Int)]
+parenPairs' = go 0 []
+  where
+    go _ []        []         = []
+    go _ (_ : _ )  []         = error "unbalanced parentheses!"
+    go j acc       ('(' : cs) =          go (j + 1) (j : acc) cs
+    go j []        (')' : cs) = error "unbalanced parentheses!"
+    go j (i : is)  (')' : cs) = (i, j) : go (j + 1) is        cs
+    go j acc       (c   : cs) =          go (j + 1) acc       cs
+
     
 data TerOp
     = Store | Ite
@@ -105,6 +137,7 @@ div   = BinOp Div
 lt    = BinOp Lt
 gt    = BinOp Gt
 eq    = BinOp Eq
+gteq  = BinOp Gteq
 land  = BinOp And
 lor   = BinOp Or
 xor   = BinOp Xor
@@ -115,7 +148,7 @@ select   = BinOp Select
         
 data Expr
     = Var String
-    | LReal Rational -- TODO: check
+    | LReal Rational
     | LTok String
     | LBool Bool
     | UnOp  UnOp  Expr
@@ -129,12 +162,10 @@ data Expr
 makeExp :: [String] -> String
 makeExp ss = "(" ++ unwords ss ++ ")"
 
--- TODO: look at concretize and normalize
-
 instance Show Expr where
     show = \case
         Var s                   -> s
-        LReal r                 -> showR r -- TODO: show how? division or decimal
+        LReal r                 -> makeExp [show Div, show $ numerator r, show $ denominator r]
         LTok t                  -> t
         LBool b                 -> lower $ show b
         UnOp  op e1             -> makeExp [show op, show e1]
@@ -144,10 +175,30 @@ instance Show Expr where
         Exists v t b            -> makeExp ["exists", makeExp [makeExp [v, show t]], show b]
         Let v t e               -> makeExp ["let", makeExp [makeExp [v, show t]], show e]
 
+data Tokenize a b = Todo a | Done b
+
+instance Read Expr where
+    readsPrec _ input = 
+        let tokenize = map Todo input in
+            []
+        where
+            readParens acc []       ctr = acc
+            readParens acc ('(':[]) ctr = [] -- error wrong parenthesis... What TODO?
+            readParens acc ('(':cs) ctr = readParens acc cs (ctr + 1)
+            readParens acc (')':cs) ctr = readParens acc cs (ctr - 1)
+            readParens acc (c : cs) ctr = readParens ((c, ctr):acc) cs ctr
+
 data Assert = Assert Expr
 
 instance Show Assert where
     show (Assert e) = makeExp ["assert", show e]
+
+data Assertion = EF Expr | EU Expr Expr
+
+instance Read Assertion where
+    readsPrec _ ('E':'F':input) = undefined -- Finally
+    readsPrec _ ('E':input) = undefined --Until
+    readsPrec _ _ = []
 
 data SMTStmt a b = Dec a | Ass b
 
@@ -156,6 +207,7 @@ data SAMM = SAMM
     { ammName :: String
     , r0      :: (Maybe Rational, Maybe String)
     , r1      :: (Maybe Rational, Maybe String) }
+    deriving (Show)
 
 readUntil :: Char -> String -> (String, String)
 readUntil c input = 
@@ -253,6 +305,20 @@ instance Read SUser where
     readsPrec _ _ = []
     
 
+--data Stmt = SU SUser | SA SAMM | ST SToks | NO String deriving (Show)
+--
+--instance Read Stmt where
+--    readsPrec _ input =
+--        case readMaybe input :: Maybe SToks of
+--            Just toks -> [(ST toks, "")]
+--            Nothing -> 
+--                case readMaybe input :: Maybe SAMM of
+--                    Just samm -> [(SA samm, "")]
+--                    Nothing   -> 
+--                        case readMaybe input :: Maybe SUser of 
+--                            Just suser -> [(SU suser, "")]
+--                            Nothing    -> [(NO "No Parse", input)]
+--    readsPrec _ _ = []
    
 data STxn = STxn
     { sender :: Maybe String

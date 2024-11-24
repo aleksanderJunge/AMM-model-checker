@@ -11,8 +11,68 @@ import qualified Data.Map as M
 
 import qualified GHC.Utils.Misc as Util
 
--- TODO: use nub for set operations!
+import qualified Text.Read as TR
+import System.IO
 
+repl :: IO ()
+repl = do
+  let symtab = empty :: Env String SType
+  putStrLn "Declare tokens"
+  stab' <- toks_ symtab 
+  putStrLn "Define initial state"
+  (stab'', stmts) <- init_ stab' []
+  case collectUsers stab'' 0 of
+    Left e -> putStrLn "you probably defined a variable called users0, it's reserved... start over"
+    Right (users0, stab''') -> do
+        putStrLn "initial state looks like:"
+        putStrLn $ showStmts (stmts ++ users0)
+        putStrLn "Define desired state"
+        --stmts2 <- final_ stab''' []
+  where 
+    --final_ stab stmts = do
+    --  putStr $ "TODO: " ++ (show $ map fst (filter (\(k,v) -> v == DAmm || v == DUser) (M.toList stab)))
+    --  putStr ">> "
+    --  hFlush stdout
+    --  line <- getLine
+    toks_ stab = do
+      putStr ">> "
+      hFlush stdout
+      line <- getLine
+      case TR.readMaybe line :: Maybe SToks of 
+        Just toks -> do
+            case declToks toks stab of
+                Left e -> do {putStrLn e; toks_ stab}
+                Right (r, stab') -> do 
+                    putStrLn r
+                    return stab' 
+        Nothing -> do {putStrLn "declare tokens, e.g.: TOKENS: (t0, ..., tn))"; toks_ stab}
+    init_ stab stmts = do
+      putStr ">> "
+      hFlush stdout
+      line <- getLine
+      if take 4 line == "next" then return (stab, stmts)
+      else case TR.readMaybe line :: Maybe SAMM of
+        Just samm -> do
+          case makeAmm samm stab of
+            Left e -> do {putStrLn e; init_ stab stmts}
+            Right (r, stab') -> do 
+                putStrLn $ showStmts r
+                init_ stab' (stmts ++ r)
+        Nothing ->
+            case TR.readMaybe line :: Maybe SUser of 
+            Just user ->
+                case makeUser user stab of
+                Left e -> do {putStrLn e; init_ stab stmts}
+                Right (r, stab') -> do {putStrLn $ showStmts r; init_ stab' (stmts ++ r)}
+            Nothing -> do
+                putStrLn $ "Didn't catch that"
+                init_ stab stmts
+
+--pickNext :: Env String SType -> Maybe (String, Env String SType)
+--pickNext (M.empty) = Nothing
+--pickNext stab
+--    | [] == (filter (\(k,v) -> v == DAmm || v == DUser) (M.toList stab)) = Nothing
+--pickNext stab = let (k, v) = find (\(k,v) -> v == DAmm || v == DUser) (M.toList stab) in return (k, delete k stab)
     
 -- TODO: enable parsing more numbers and check for subzero
 makeAmm :: SAMM -> Env String SType -> Either String ([SMTStmt Decl Assert], Env String SType)
@@ -36,6 +96,15 @@ makeAmm (SAMM n (v, t) (v', t')) stab =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
         checkTok stab Nothing = True -- If token isn't declared, it's fine
+
+collectUsers :: Env String SType -> Int -> Either String ([SMTStmt Decl Assert], Env String SType)
+collectUsers stab i = 
+    let cname      = "users" ++ (show i) in
+    if isJust (get stab cname ) then Left $ " user collection already defined for depth: " ++ (show i) else
+    let users      = map fst (filter (\(k,v) -> v == DUser) (M.toList stab))
+        assertions = concat $ map (\u -> [Ass . Assert $ eq (Var u) (select (Var cname) (Var ("\"" ++ u ++ "\""))) ]) users
+        stab'      = bind stab (cname, DUsers)
+    in Right (assertions, stab')
 
 makeUser :: SUser -> Env String SType -> Either String ([SMTStmt Decl Assert], Env String SType)
 makeUser (SUser wal n) stab =

@@ -8,7 +8,7 @@ import Data.List
 
 import qualified Data.Map.Strict as M
 
-data SType = DTok | DAmm | DUser deriving (Eq, Ord, Show)
+data SType = DTok | DAmm | DUser | DUsers deriving (Eq, Ord, Show)
 
 type Env a b = M.Map a b
 
