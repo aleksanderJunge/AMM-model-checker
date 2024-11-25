@@ -45,7 +45,7 @@ repl = do
                 Right (r, stab') -> do 
                     putStrLn r
                     return stab' 
-        Nothing -> do {putStrLn "declare tokens, e.g.: TOKENS: (t0, ..., tn))"; toks_ stab}
+        Nothing -> do {putStrLn "declare tokens, e.g.: TOKENS: (t0, t1, t2)"; toks_ stab}
     init_ stab stmts = do
       putStr ">> "
       hFlush stdout

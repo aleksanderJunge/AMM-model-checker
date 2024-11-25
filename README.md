@@ -27,3 +27,8 @@ This will output a short log displaying the trace of transactions from the examp
 ```
 cabal clean
 ```
+
+### dependencies:
+```
+cabal new-install --lib split
+```

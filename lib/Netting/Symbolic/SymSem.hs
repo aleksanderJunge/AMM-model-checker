@@ -237,7 +237,6 @@ instance Read SAMM where
         else []
         where 
             isRatio "" = False
-            --isRatio r  = all (\c -> isNumber c || c == '%') r || r == "_"
             isRatio r  = 
                 if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
                 case Util.split '%' r of 

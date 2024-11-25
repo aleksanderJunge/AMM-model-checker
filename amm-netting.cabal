@@ -45,10 +45,13 @@ executable amm-netting
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
+    -- TODO: remove ghc and other dependencies, oince these are moved into lib
     build-depends:    base >=4.18.0.0 && <= 4.20.0.0, 
                       netting-lib,
                       containers,
-                      process
+                      process,
+                      split,
+                      ghc
     hs-source-dirs:   app
     default-language: Haskell2010
 
