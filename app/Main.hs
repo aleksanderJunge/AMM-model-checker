@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Main where
 
 import Control.Monad
@@ -11,10 +13,12 @@ import Netting.Symbolic.Basics
 import Netting.Symbolic.SymSem
 import Netting.SymTab
 import Data.List.Split
+import Data.List
 import qualified GHC.Utils.Misc as Util
 import Data.Either
+import Data.Either.Extra
 import Data.Char
-import Text.Read
+import Text.Read hiding (prec)
 
 readParens :: [(Char, Int)] -> String -> Int -> [(Char, Int)]
 readParens acc []       ctr 
@@ -54,25 +58,66 @@ mergeToks (Just ts) =
   if sum1 /= sum2 then Left "Couldn't split a token due to parenthesis" else
   Right $ map (\l -> foldl (\(acc, j) (c, i) -> (acc ++ [c], i)) ("", 0) l) ts'
 
-tokenize :: String -> IO ()
-tokenize input = 
+--data ParseHelper a b c = Done a | UnO b | BinO c
+
+type ParseHelper2 = ParseHelper Expr UnOp BinOp
+
+parse :: String -> Either String Expr
+parse input = 
   let string_depth = mergeToks . splitWhen' . reverse $ readParens [] input 0
-  in do
-    putStrLn $ show string_depth
-    --mapM try_print ((map fst . (fromRight [])) string_depth)
-    mapM (\(s, i) -> putStrLn $ show (toVar s)) (fromRight [] string_depth)
-    return ()
+  in if isLeft string_depth then Left "failed to parse string depth" else
+    let string_depth' = Util.mapFst tokenize (fromRight [] string_depth)
+    in if (>0) . length $ filter (\(exp, _) -> isNothing exp) string_depth' then Left "Tokenization failed" else 
+    let tokens_depth = Util.mapFst fromJust string_depth'
+    in parse' tokens_depth
   where 
-    try_print s =
+    -- TODO: IMPORTANT!!!  lower depth by 1 after parsing exp!!! and modify code to take into account
+    parse' :: [(ParseHelper2, Int)] -> Either String Expr
+    parse' [(Done exp, _)] = Right exp
+    parse' a        = 
+      let max_depth = foldl (\acc (exp, i) -> case exp of {Done _ -> acc; _ -> max i acc}) 0 a
+          --prefixLen = takeWhile (\(_, i)-> i /= max_depth) a
+          toParse   = takeWhile (\(_, i) -> i == max_depth) (dropWhile (\(_, i)-> i /= max_depth) a) -- parses leftmost 'deepest' exp (based on parenthesis), might be 0 if no ()
+          precs     = map prec ( map fst toParse )
+      in if (>0) . length $ (filter isNothing precs) then Left "trying to parse op whose precedence is unspecified" else
+      let max_prec  = foldl (\hi i -> max hi i) 0 (map fromJust precs)
+          idx       = (fromJust $ findIndex (\(exp, i) -> (fromJust $ prec exp) == max_prec && i == max_depth) a)
+      in case a !? idx of
+          Nothing            -> Left "out of bounds idx access when looking for operator"
+          Just (UnO u, i)  -> let operand = get_adj_exp a (idx + 1)
+                              in if isLeft operand then operand else 
+                              let exp     = UnOp u (fromRight' operand) in
+                                parse' $ (take idx a) ++ [(Done $ exp, i - 1)] ++ (drop ( idx + 2) a) -- TODO: double check this i - 1
+          Just (BinO b, i) -> let operand1 = get_adj_exp a (idx - 1)
+                              in if isLeft operand1 then operand1 else 
+                              let operand2 = get_adj_exp a (idx + 1) 
+                              in if isLeft operand2 then operand2 else 
+                              let exp      = BinOp b (fromRight' operand1) (fromRight' operand2)
+                              in parse' $ (take (idx - 1) a) ++ [(Done $ exp, i - 1)] ++ (drop ( idx + 2) a) -- TODO: double check this i - 1
+          _                  -> error "Trying to re-eval an already evaled exp"
+
+    get_adj_exp a i =
+      let exp = a !? i in
+        case exp of 
+          Nothing            -> Left "adjacent expr was not accessible"
+          Just (UnO _, i)    -> Left "unop (unop expr): not supported (not necessary so far)"
+          Just (BinO _, i)   -> Left "Found 2 operands next to each other"
+          Just (Done exp, i) -> Right exp
+
+    tokenize :: String -> Maybe ParseHelper2
+    tokenize s =
       case readMaybe s :: Maybe UnOp of
-        Just uno -> putStrLn $ show uno
+        Just uno -> return . UnO $ uno
         Nothing  -> do
           case readMaybe s :: Maybe BinOp of
-            Just bino -> putStrLn $ show bino
+            Just bino -> return . BinO $ bino
             Nothing   -> do
               case readMaybe s :: Maybe Rational of 
-                Just r -> putStrLn $ show r
-                Nothing -> putStrLn $ show (Var (s))
+                Just r -> return . Done $ LReal r
+                Nothing -> 
+                  case toVar s of
+                    Just exp -> return . Done $ exp
+                    Nothing  -> Nothing
     isRatio "" = False
     isRatio r  = 
         if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
@@ -103,49 +148,16 @@ tokenize input =
                                           _       -> Nothing 
             _ -> Nothing
 
--- Overall idea for parsing this:
--- Firstly, we represent the list of tokens as a sequnce of 'TODOS'
--- (Either, Done Exp   or   Todo (String, Int))
--- 
--- Secondly, we do a sequnce of traversals through this list, at each traversal we parse
---   the deepest unparsed part of the list. (Meaning the part with highest snd component, which might be equal)
---
--- As an expression, might likely rely on a bordering expression that is either not parsed or parsed we have to
---   be considerate of "border" issues between Done Exp and Todo (String, Int)
---
--- As an example consider:
---   [Done (UnOp Not (Something)), Todo ("=>", i), Todo ("aleks.t0", i), Todo (">", i), Todo ("12%1", i)]
---
--- In this case, we search for the operator of highest precedence and consume the necessary tokens surrounding to parse it as an expression
---   in this case, giving:
---
--- As an example consider:
---   [Done (UnOp Not (Something)), Todo ("=>", i), Done (BinOp Gt (Var "aleks.t0") (LReal 12%1))]
---
--- Before proceeding to parse the implication, which is now surrounded by "Done" expressions, and can be readily parsed.
--- 
--- We should consider augmenting the "Done" data constructor with type information, such that we can check the types of ">" are 
---   e.g. "Real" Or "Int " on both sides, and similarly that the outermost-expression has type bool!
---
--- This gives rise to the following data decl:
--- data Todo a b = DoneB a | DoneR a | Todo b
---
--- where DoneB denotes that 'a' has type bool, and DoneR that 'a' has type Rational
--- But this might prove impossible to do, as our parser doesn't have access to our symbol table
---
--- a = Real/Var/Single (Also Exp? e.g. LReal and Var, so maybe just Done?), b = UnOp, c = BinOp, d = Exp
--- data Todo a b c d = TodoNu a | TodoUn b | TudoBi c | Done d
-
 main :: IO ()
 main = do
-  --putStrLn $ show . reverse $ readParens [] " aleks.t0 = ((3 + 9) / 4)" 0
-  --putStrLn $ show . splitWhen . reverse $ readParens [] "not( aleks.t0 = ((3%1 + 992%1) / 41%1))" 0
-  tokenize "not (aleks.t0 = ((3%1 + 992%1) / 41%1))"
-  tokenize "((aleks.t0 > 4%1) && (alberto.t1 < aleks.t0))"
-  tokenize "aleks.t0 > 4%1 && alberto.t1 < aleks.t0"
-  tokenize "testamm.r0.t = t1"
+  putStrLn . show $ parse "alberto.t1 >= aleks.t1 && aleks.t1 >= roberto.t1 => alberto.t1 >= roberto.t1"
+  putStrLn . show $ parse "not (aleks.t0 = ((3%1 + 992%1) / 41%1))"
+  putStrLn . show $ parse "((aleks.t0 > 4%1) && (alberto.t1 < aleks.t0))"
+  putStrLn . show $ parse "aleks.t0 > 4%1 && alberto.t1 < aleks.t0"
+  putStrLn . show $ parse "testamm.r0.t = t1"
   repl 
   return ()
+
     --  case read line :: Stmt of
     --    ST toks -> do 
     --      case declToks of

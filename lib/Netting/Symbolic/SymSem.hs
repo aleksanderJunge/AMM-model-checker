@@ -102,16 +102,6 @@ instance Read BinOp where
     readsPrec _ ('=':'>':[]) = [(Implies, "")]
     readsPrec _ _ = []
 
-parenPairs' :: String -> [(Int, Int)]
-parenPairs' = go 0 []
-  where
-    go _ []        []         = []
-    go _ (_ : _ )  []         = error "unbalanced parentheses!"
-    go j acc       ('(' : cs) =          go (j + 1) (j : acc) cs
-    go j []        (')' : cs) = error "unbalanced parentheses!"
-    go j (i : is)  (')' : cs) = (i, j) : go (j + 1) is        cs
-    go j acc       (c   : cs) =          go (j + 1) acc       cs
-
     
 data TerOp
     = Store | Ite
@@ -175,18 +165,41 @@ instance Show Expr where
         Exists v t b            -> makeExp ["exists", makeExp [makeExp [v, show t]], show b]
         Let v t e               -> makeExp ["let", makeExp [makeExp [v, show t]], show e]
 
-data Tokenize a b = Todo a | Done b
+-- Parses our text into either a nullary, unary or binary expression
+data ParseHelper a b c = Done a | UnO b | BinO c
 
-instance Read Expr where
-    readsPrec _ input = 
-        let tokenize = map Todo input in
-            []
-        where
-            readParens acc []       ctr = acc
-            readParens acc ('(':[]) ctr = [] -- error wrong parenthesis... What TODO?
-            readParens acc ('(':cs) ctr = readParens acc cs (ctr + 1)
-            readParens acc (')':cs) ctr = readParens acc cs (ctr - 1)
-            readParens acc (c : cs) ctr = readParens ((c, ctr):acc) cs ctr
+prec :: (ParseHelper Expr UnOp BinOp) -> Maybe Int
+prec (Done _)        = return (-1)
+prec (BinO Implies)  = return 1
+prec (BinO Or  )     = return 2
+prec (BinO And )     = return 3
+prec (BinO Distinct) = return 4
+prec (BinO Eq  )     = return 4 
+prec (UnO Not)       = return 5
+prec (BinO Lt  )     = return 6
+prec (BinO Gt  )     = return 6
+prec (BinO Gteq)     = return 6
+prec (BinO Add )     = return 7
+prec (BinO Sub )     = return 7
+prec (BinO Mul )     = return 8
+prec (BinO Div )     = return 8
+prec (BinO Xor)      = Nothing -- These operators are not currently supported (some are implicitly)
+prec (UnO R0 )       = Nothing 
+prec (UnO R1 )       = Nothing
+prec (UnO T  )       = Nothing
+prec (UnO V  )       = Nothing
+prec (BinO Select)   = Nothing
+
+--instance Read Expr where
+--    readsPrec _ input = 
+--        let tokenize = map Todo input in
+--            []
+--        where
+--            readParens acc []       ctr = acc
+--            readParens acc ('(':[]) ctr = [] -- error wrong parenthesis... What TODO?
+--            readParens acc ('(':cs) ctr = readParens acc cs (ctr + 1)
+--            readParens acc (')':cs) ctr = readParens acc cs (ctr - 1)
+--            readParens acc (c : cs) ctr = readParens ((c, ctr):acc) cs ctr
 
 data Assert = Assert Expr
 
