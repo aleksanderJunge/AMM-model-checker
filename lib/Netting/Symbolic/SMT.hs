@@ -7,6 +7,7 @@ import Netting.Symbolic.Sem
 import Data.Maybe
 import Data.List
 import Data.Either
+import Data.Tuple.Extra
 import qualified Data.Map as M
 import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
@@ -20,22 +21,39 @@ type Symtable = Env String SType
 
 type TxGuess = (String, String, String)
 
+data SwapDir = LR | RL
+
+instance Show SwapDir where 
+  show LR = "lr"
+  show RL = "rl"
+
 buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Symtable -> Int -> (String, [String]) -> [TxGuess] -> Query -> Either String String
 buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
 buildSMTQuery (samms, susers, assertions) stmts stab k (tokdec, toks) guess query =
-    Right $
+    -- TODO: simplify this if we don't allow for symbolic tokens!
+    let swappingAmms = ammsToUse guess samms []
+    in Right $
     unlines [ tokdec ] 
     ++ baseAxioms
+    ++ buildVars k (map ammName samms)
     ++ showStmts stmts
+    ++ (chain guess swappingAmms k)
     ++ unlines [ show $ decorateWithDepth query stab k ]
-    -- ++ buildVars k
-    -- ++ constrainState s 0 -- (assuming s = g)
-    -- ++ constrainTxns guess k
-    -- ++ (unlines $ map buildChainAssertions [k])
-    -- ++ (unlines $ map (\(U (n, amts)) -> userGoal amts k n) goals)
     ++ unlines ["(check-sat)"]
     ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [0..k-1])
+    where
+      ammsToUse [] amms acc = acc
+      ammsToUse (guess:guesses) amms acc = 
+        let t0 = snd3 guess 
+            t1 = thd3 guess in 
+        case find (\(SAMM _ r0' r1') -> ((fromJust . snd $ r0') == t0 && (fromJust . snd $ r1') == t1)) amms of
+            Just samm -> ammsToUse guesses amms (acc ++ [(ammName samm, map ammName (delete samm amms), LR)])
+            Nothing -> 
+              case find (\(SAMM _ r0' r1') -> (fromJust . snd $ r1') == t0 && (fromJust . snd $ r0') == t1) amms of 
+                Just samm -> ammsToUse guesses amms (acc ++ [(ammName samm, map ammName (delete samm amms), RL)])
+                Nothing   -> error "no amm on this token pair" -- TODO: handle better
+
   
 -- this could be somewhat limiting in the sense that there's no way to compare variables across different time steps in the query language
 decorateWithDepth :: Query -> Symtable -> Int -> Assert
@@ -45,7 +63,7 @@ decorateWithDepth (EF exp) stab k =
     decorate :: Expr -> Symtable -> Int -> Expr
     decorate (Var n) stab k   =
       case get stab n of
-        Just DAmm  -> (Var $ n ++ (show k))
+        Just DAmm  -> (Var $ n ++ "_" ++ (show k))
         Just DUser -> (select (Var $ "users" ++ (show k)) (Var $ "\""++ n ++ "\""))
         _          -> (Var n)
     decorate (LReal r) stab k = (LReal r)
@@ -78,28 +96,22 @@ makeAmm (SAMM n (v, t) (v', t')) stab =
             if isJust tt && (fromJust tt == DTok) then True else False
         checkTok stab Nothing = True -- If token isn't declared, it's fine
 
---constrainTxns :: [ TxGuess ] -> Int -> String
---constrainTxns guess k =
---    let ks = [0..k-1]  -- TODO: add constraint that user's last transaciton must result in a positive balanc
---        nameSet = map head . group . sort $ map fst3 guess
---        lastOccurrence = M.fromList $ map (\(n,i) -> (n, (length guess) - i - 1 )) $ map (findFstOcc 0 (reverse guess)) nameSet 
---        in
---        unlines $ (makeGuess lastOccurrence guess ks) ++ (assertAmount ks)
---    where 
---        findFstOcc i [] n = (n, i-1) -- TODO: figure out some decent val here
---        findFstOcc i (tx:txns) n = if n == (fst3 tx) then (n, i) else findFstOcc (i + 1) txns n
---        makeGuess lastOcc guess ks = 
---            map (\i -> unlines $
---            [ "(assert (and"
---            , if i == fromMaybe (-1) (M.lookup (fst3 $ guess !! i) lastOcc) 
---                then "(forall ((tau Token)) (>= (getBal state" ++ (show $ i + 1) 
---                     ++ " \"" ++ (fst3 $ guess !! i) ++ "\" tau) 0))"
---              else ""
---            , unlines $ ["  (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!i) ++ "\")"]
---            , unlines $ ["  (= (t (from txn" ++ (show i) ++ ")) " ++ (show . snd3 $ guess!!i) ++ ")"]
---            , unlines $ ["  (= (t (to   txn" ++ (show i) ++ ")) " ++ (show . thd3 $ guess!!i) ++ ")"]
---            , "))"]) ks
---        assertAmount ks = map (\i -> "(assert (> (v (from txn" ++ (show i) ++ ")) 0 ))") ks
+-- TODO: incorporate last occurrence information, when solving for green/red states
+chain :: [ TxGuess ] -> [(String, [String], SwapDir)] -> Int -> String
+chain guesses amms k = 
+  unlines $ (constrain_txns guesses k []) ++ (chain_assertions guesses amms k [])
+  where
+    constrain_txns guess k acc =
+      concat $ map (\i -> 
+            [ "(assert (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!(i-1)) ++ "\"))"
+            , "(assert (= (t (from txn" ++ (show i) ++ ")) " ++ (show . snd3 $ guess!!(i-1)) ++ "))"
+            , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (show . thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
+    chain_assertions guesses amms 0 acc = acc
+    chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k-1) ( acc ++
+          [ "(assert (= users" ++ (show k) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show $ k - 1) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) ++ "))))"
+          , "(assert (= " ++ (n ++ "_" ++ (show k)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show $ k - 1) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) + "))))"
+          , concat $ map (\s -> "(assert (= " ++ (s ++ "_" ++ (show k)) ++ " " ++ (s ++ "_" ++ (show (k - 1))) ++ "))") ns ])
+      
 
 collectUsers :: Env String SType -> Int -> Either String ([SMTStmt Decl Assert], Env String SType)
 collectUsers stab i = 
@@ -110,6 +122,18 @@ collectUsers stab i =
         --assertions = concat $ map (\u -> [Ass . Assert $ eq (Var u) (select (Var cname) ()) ]) users
         stab'      = bind stab (cname, DUsers)
     in Right (usersState, stab')
+
+-- Returns the necessary variables needed for executing i steps
+buildVars :: Int -> [String] -> String
+buildVars k amms =
+      unlines $ build_vars k amms []
+      where 
+          build_vars 0 amms s = unlines
+            [ "( declare-const users" ++ (show 0) ++ " (Array String (Array Token Real)))"] : s
+          build_vars i amms s = build_vars (i - 1) amms (unlines 
+            [ "( declare-const txn"   ++ (show i) ++ " Txn)"
+            , "( declare-const users" ++ (show i) ++ " (Array String (Array Token Real)))"
+            , unlines (map (\s ->"( declare-const " ++ s ++ (show i) ++ " Amm)") amms)] : s)
 
 -- TODO: opt point, maybe completely concretize wallet by storing rather than selecting tokens from it 
 makeUser :: SUser -> Symtable -> Either String ([SMTStmt Decl Assert], Env String SType)
@@ -151,28 +175,6 @@ showStmts stmts =
             \case
                 Dec decl -> show decl
                 Ass ass  -> show ass
-
-
--- TODO: returns Left (Reason for failure) or Right (success)
---checkAMMConsistency :: [SMTStmt Decl Assert] -> [String] -> Either String Bool
---checkAMMConsistency stmts toks = undefined
-   -- let ammdecls = filter (\stmt -> \case {
-   --     Dec (DeclVar _ dt) 
-   --         | dt == TAmm -> True;
-   --     _                -> False
-   -- }) stmts 
-   -- let 
-
--- Returns the necessary variables needed for executing i steps
---buildVars :: Int -> String
---buildVars i =
---      unlines $ build_vars i []
---      where 
---          build_vars 0 s = unlines
---            [ "( declare-const state" ++ (show 0) ++ " State)"] : s
---          build_vars i s = build_vars (i - 1) (unlines 
---            [ "( declare-const txn"   ++ (show $ i - 1) ++ " Txn)"
---            , "( declare-const users" ++ (show i) ++ " State)"] : s)
 
 baseAxioms :: String
 baseAxioms = unlines $

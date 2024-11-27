@@ -185,7 +185,7 @@ data SAMM = SAMM
     { ammName :: String
     , r0      :: (Maybe Rational, Maybe String)
     , r1      :: (Maybe Rational, Maybe String) }
-    deriving (Show)
+    deriving (Show, Eq)
     
 data SToks = SToks [String] deriving (Show)
 
