@@ -9,6 +9,7 @@ import Data.List
 import Data.Either
 import Data.Tuple.Extra
 import qualified Data.Map as M
+import qualified Data.Set as S
 import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
@@ -27,10 +28,10 @@ instance Show SwapDir where
   show LR = "lr"
   show RL = "rl"
 
-buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Symtable -> Int -> (String, [String]) -> [TxGuess] -> Query -> Either String String
+buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Symtable -> (String, [String]) -> Query -> [TxGuess] -> Int -> Either String String
 buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
-buildSMTQuery (samms, susers, assertions) stmts stab k (tokdec, toks) guess query =
+buildSMTQuery (samms, susers, assertions) stmts stab (tokdec, toks) query guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms []
     in Right $
@@ -41,7 +42,7 @@ buildSMTQuery (samms, susers, assertions) stmts stab k (tokdec, toks) guess quer
     ++ (chain guess swappingAmms k)
     ++ unlines [ show $ decorateWithDepth query stab k ]
     ++ unlines ["(check-sat)"]
-    ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [0..k-1])
+    ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [1..k])
     where
       ammsToUse [] amms acc = acc
       ammsToUse (guess:guesses) amms acc = 
@@ -72,22 +73,47 @@ decorateWithDepth (EF exp) stab k =
     decorate (BinOp binop e1 e2) stab k    = BinOp binop (decorate e1 stab k) (decorate e2 stab k)
     decorate (TerOp terop e1 e2 e3) stab k = TerOp terop (decorate e1 stab k) (decorate e2 stab k) (decorate e3 stab k)
     decorate exp _ _ = exp
+
+getCombinations :: ([SAMM], [SUser]) -> Int -> [[[TxGuess]]]
+getCombinations (samms, susers) k =
+  -- TODO: do more error checking here, such as checking for that length of unqieu elems = original list... etc.
+  let token_pairs' = map (\(SAMM _ r0' r1') -> (fromJust . snd $ r0', fromJust . snd $ r1')) samms
+      tokens        = nub . concat $ map (\(a, b) -> [a, b]) token_pairs'
+      token_pairs  = S.fromList token_pairs'
+      names         = map name susers
+      combinations  = [(n, t0, t1) | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
+                                      (S.member (t0, t1) token_pairs) || (S.member (t1, t0) token_pairs) ]
+      ks            = [1..k]
+      guesses       = map (getGuesses combinations) ks
+  in  map (filter check_adjacent_txns) guesses
+  where
+    getGuesses combs k = sequence $ replicate k combs
+    check_adjacent_txns [] = True
+    check_adjacent_txns (tx:[]) = True
+    check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
+        where 
+            check_tx tx []          = True
+            check_tx tx@(n, t, t') ((n', t'', t'''):txs)
+                | n == n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = False
+                | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
+                | otherwise = check_tx tx txs
+
  
 -- TODO: enable parsing more numbers and check for subzero
-makeAmm :: SAMM -> Symtable -> Either String ([SMTStmt Decl Assert], Env String SType)
-makeAmm (SAMM n (v, t) (v', t')) stab =
+makeAmm :: SAMM -> Int -> Symtable -> Either String ([SMTStmt Decl Assert], Env String SType)
+makeAmm (SAMM n (v, t) (v', t')) depth stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
     else if not (checkTok stab t)  then Left $ "Token: " ++ (fromMaybe "?" t ) ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else if not (checkTok stab t') then Left $ "Token: " ++ (fromMaybe "?" t') ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else 
-    let amm_name = singleton . Dec $ DeclVar n TAmm
-        val_v    = fromMaybe [] ( v  >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr0 $ Var n)] ))
-        val_v'   = fromMaybe [] ( v' >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr1 $ Var n)] ))
-        val_t    = fromMaybe [] ( t  >>= (\t -> Just [Ass . Assert $ eq (LTok  t)  (gett . getr0 $ Var n)] ))
-        val_t'   = fromMaybe [] ( t' >>= (\t -> Just [Ass . Assert $ eq (LTok  t)  (gett . getr1 $ Var n)] ))
-        distinctness = [Ass . Assert $ distinct (gett . getr0 $ Var n) (gett . getr1 $ Var n)]
-        pos_v   = if null val_v  then [Ass . Assert $ lt (LReal 0) (getv . getr0 $ Var n)] else []
-        pos_v'  = if null val_v' then [Ass . Assert $ lt (LReal 0) (getv . getr1 $ Var n)] else []
+    let amm_name = singleton . Dec $ DeclVar (n ++ "_" ++ (show depth)) TAmm
+        val_v    = fromMaybe [] ( v  >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] ))
+        val_v'   = fromMaybe [] ( v' >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] ))
+        val_t    = fromMaybe [] ( t  >>= (\t -> Just [Ass . Assert $ eq (LTok  t)  (gett . getr0 $ Var (n ++ "_" ++ (show depth)))] ))
+        val_t'   = fromMaybe [] ( t' >>= (\t -> Just [Ass . Assert $ eq (LTok  t)  (gett . getr1 $ Var (n ++ "_" ++ (show depth)))] ))
+        distinctness = [Ass . Assert $ distinct (gett . getr0 $ Var (n ++ "_" ++ (show depth))) (gett . getr1 $ Var (n ++ "_" ++ (show depth)))]
+        pos_v   = if null val_v  then [Ass . Assert $ lt (LReal 0) (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] else []
+        pos_v'  = if null val_v' then [Ass . Assert $ lt (LReal 0) (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] else []
         stab' = bind stab (n, DAmm)
     in Right (amm_name ++ val_v ++ val_v' ++ val_t ++ val_t' ++ distinctness ++ pos_v ++ pos_v', stab')
     where 
@@ -103,13 +129,14 @@ chain guesses amms k =
   where
     constrain_txns guess k acc =
       concat $ map (\i -> 
-            [ "(assert (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!(i-1)) ++ "\"))"
-            , "(assert (= (t (from txn" ++ (show i) ++ ")) " ++ (show . snd3 $ guess!!(i-1)) ++ "))"
-            , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (show . thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
+            [ "(assert (> (v (from txn" ++ (show i) ++ ")) 0))"
+            , "(assert (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!(i-1)) ++ "\"))"
+            , "(assert (= (t (from txn" ++ (show i) ++ ")) " ++ (snd3 $ guess!!(i-1)) ++ "))"
+            , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
     chain_assertions guesses amms 0 acc = acc
     chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k-1) ( acc ++
-          [ "(assert (= users" ++ (show k) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show $ k - 1) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) ++ "))))"
-          , "(assert (= " ++ (n ++ "_" ++ (show k)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show $ k - 1) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) + "))))"
+          [ "(assert (= users" ++ (show k) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show k) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) ++ "))))"
+          , "(assert (= " ++ (n ++ "_" ++ (show k)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show k) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) ++ "))))"
           , concat $ map (\s -> "(assert (= " ++ (s ++ "_" ++ (show k)) ++ " " ++ (s ++ "_" ++ (show (k - 1))) ++ "))") ns ])
       
 
@@ -133,7 +160,7 @@ buildVars k amms =
           build_vars i amms s = build_vars (i - 1) amms (unlines 
             [ "( declare-const txn"   ++ (show i) ++ " Txn)"
             , "( declare-const users" ++ (show i) ++ " (Array String (Array Token Real)))"
-            , unlines (map (\s ->"( declare-const " ++ s ++ (show i) ++ " Amm)") amms)] : s)
+            , unlines (map (\s ->"( declare-const " ++ s ++ "_" ++ (show i) ++ " Amm)") amms)] : s)
 
 -- TODO: opt point, maybe completely concretize wallet by storing rather than selecting tokens from it 
 makeUser :: SUser -> Symtable -> Either String ([SMTStmt Decl Assert], Env String SType)
