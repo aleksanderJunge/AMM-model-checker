@@ -1,6 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Netting.Symbolic.SymSem where
+module Netting.Symbolic.Sem where
 
 import Netting.Symbolic.Utils
 
@@ -55,14 +55,6 @@ instance Show UnOp where
         T   -> "t"
         V   -> "v"
 
-instance Read UnOp where
-    readsPrec _ ('n':'o':'t':[]) = [(Not, "")]
-    readsPrec _ ('r':'0':[])     = [(R0, "")]
-    readsPrec _ ('r':'1':[])     = [(R1, "")]
-    readsPrec _ ('t':[])         = [(T, "")]
-    readsPrec _ ('v':[])         = [(V, "")]
-    readsPrec _ _ = []
-
 data BinOp
     = Add | Mul | Sub | Div
     | Lt | Gt | Eq | Gteq | Or | And | Distinct
@@ -86,21 +78,6 @@ instance Show BinOp where
         Xor -> "xor"
         Implies -> "=>"
         Select -> "select"
-
-instance Read BinOp where
-    readsPrec _ ('+':[])     = [(Add, "")]
-    readsPrec _ ('*':[])     = [(Mul, "")]
-    readsPrec _ ('-':[])     = [(Sub, "")]
-    readsPrec _ ('/':[])     = [(Div, "")]
-    readsPrec _ ('<':[])     = [(Lt, "")]
-    readsPrec _ ('>':[])     = [(Gt, "")]
-    readsPrec _ ('=':[])     = [(Eq, "")]
-    readsPrec _ ('>':'=':[]) = [(Gteq, "")]
-    readsPrec _ ('|':'|':[]) = [(Or, "")]
-    readsPrec _ ('&':'&':[]) = [(And, "")]
-    readsPrec _ ('/':'=':[]) = [(Distinct, "")]
-    readsPrec _ ('=':'>':[]) = [(Implies, "")]
-    readsPrec _ _ = []
 
     
 data TerOp
@@ -134,6 +111,10 @@ xor   = BinOp Xor
 implies  = BinOp Implies
 distinct = BinOp Distinct
 select   = BinOp Select
+
+store, ite :: Expr -> Expr -> Expr -> Expr
+store = TerOp Store
+ite   = TerOp Ite
 
         
 data Expr
@@ -190,30 +171,14 @@ prec (UnO T  )       = Nothing
 prec (UnO V  )       = Nothing
 prec (BinO Select)   = Nothing
 
---instance Read Expr where
---    readsPrec _ input = 
---        let tokenize = map Todo input in
---            []
---        where
---            readParens acc []       ctr = acc
---            readParens acc ('(':[]) ctr = [] -- error wrong parenthesis... What TODO?
---            readParens acc ('(':cs) ctr = readParens acc cs (ctr + 1)
---            readParens acc (')':cs) ctr = readParens acc cs (ctr - 1)
---            readParens acc (c : cs) ctr = readParens ((c, ctr):acc) cs ctr
-
 data Assert = Assert Expr
 
 instance Show Assert where
     show (Assert e) = makeExp ["assert", show e]
 
-data Assertion = EF Expr | EU Expr Expr
-
-instance Read Assertion where
-    readsPrec _ ('E':'F':input) = undefined -- Finally
-    readsPrec _ ('E':input) = undefined --Until
-    readsPrec _ _ = []
-
 data SMTStmt a b = Dec a | Ass b
+
+data SType = DTok | DAmm | DUser | DUsers deriving (Eq, Ord, Show)
 
 -- we only provide input for t, v, and wallet if those are to be "named" and constrained, otherwise leave unconstrained
 data SAMM = SAMM
@@ -221,62 +186,9 @@ data SAMM = SAMM
     , r0      :: (Maybe Rational, Maybe String)
     , r1      :: (Maybe Rational, Maybe String) }
     deriving (Show)
-
-readUntil :: Char -> String -> (String, String)
-readUntil c input = 
-    case span (/= c) input of
-        (h, _:rest) -> (h, rest)
-        _           -> ("!", "")
-
--- like ReadUntil, but will return an error if it reads more than two words before encountering the breaker
-readTokUntil :: Char -> String -> (String, String)
-readTokUntil c input = 
-    case span (/= c) input of
-        (h, _:rest) ->
-            if ((>1) . length . words) h then ("!", "") else (concat $ words h, rest)
-        _           -> ("!", "")
-
-instance Read SAMM where
-    readsPrec _ ('A':'M':'M':input) = 
-        let (name, rest1) = readTokUntil '(' input in if name == "!" then [] else
-        let (v0,   rest2) = readTokUntil ':' rest1 in if v0   == "!" then [] else
-        let (t0,   rest3) = readTokUntil ',' rest2 in if t0   == "!" then [] else
-        let (v1,   rest4) = readTokUntil ':' rest3 in if v1   == "!" then [] else
-        let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
-        if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
-                             && all isToken [t0, t1]
-                             && all isRatio [v0, v1]
-        then [(SAMM name (toVal v0, toName t0) (toVal v1, toName t1), rest)]
-        else []
-        where 
-            isRatio "" = False
-            isRatio r  = 
-                if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
-                case Util.split '%' r of 
-                    (num:den:[]) | all isNumber num && all isNumber den -> True
-                    _ -> False
-            isToken "" = False
-            isToken s  = s == "_" || all isAlphaNum s
-            toName "_" = Nothing
-            toName x   = pure x
-            toVal  "_" = Nothing
-            toVal  v   = readMaybe v :: Maybe Rational
-    readsPrec _ _ = [] -- no parse 
     
 data SToks = SToks [String] deriving (Show)
 
-instance Read SToks where
-    readsPrec _ ('T':'O':'K':'E':'N':'S':input) = 
-        let (h, rest1  ) = readUntil '(' input in if h    == "!" then [] else
-        let (toks, rest) = readUntil ')' rest1 in if toks == "!" then [] else
-        let toks'  = Util.split ',' toks
-            toks'' = map (filter (\c -> c /= ' ')) toks'
-        in 
-            if (any (\x -> ((> 1) . length) $ words x) toks') then [] else 
-            if any (\s -> null s || all (\c -> c == ' ') s) toks'' then [] else
-        [(SToks $ toks'', rest)]
-    readsPrec _ _ = []
-    
 data SUser = SUser
     { wallet :: [(String, (Maybe Rational))]
     , name   ::  String }
@@ -315,25 +227,3 @@ instance Read SUser where
                         isToken "" = False
                         isToken s  = all isAlphaNum s -- TODO: allow symbolic tokens in the wallet? or ludacris
     readsPrec _ _ = []
-    
-
---data Stmt = SU SUser | SA SAMM | ST SToks | NO String deriving (Show)
---
---instance Read Stmt where
---    readsPrec _ input =
---        case readMaybe input :: Maybe SToks of
---            Just toks -> [(ST toks, "")]
---            Nothing -> 
---                case readMaybe input :: Maybe SAMM of
---                    Just samm -> [(SA samm, "")]
---                    Nothing   -> 
---                        case readMaybe input :: Maybe SUser of 
---                            Just suser -> [(SU suser, "")]
---                            Nothing    -> [(NO "No Parse", input)]
---    readsPrec _ _ = []
-   
-data STxn = STxn
-    { sender :: Maybe String
-    , from   :: (Maybe String, Maybe String)
-    , to     :: (Maybe String, Maybe String)
-    }

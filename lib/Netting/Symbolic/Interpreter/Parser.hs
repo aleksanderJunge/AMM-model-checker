@@ -1,0 +1,188 @@
+module Netting.Symbolic.Interpreter.Parser where
+
+import Control.Monad
+import Data.Maybe
+import Netting.Sem
+import Netting.AmmFuns
+import Netting.Symbolic.Sem
+import Netting.Symbolic.Utils
+import Netting.Symbolic.Interpreter.SymTab
+import Data.List.Split
+import Data.List
+import qualified GHC.Utils.Misc as Util
+import Data.Either
+import Data.Either.Extra
+import Data.Char
+import Text.Read hiding (prec)
+
+type ToParse = ParseHelper Expr UnOp BinOp
+
+parse :: String -> Either String Expr
+parse input = 
+  let string_depth = mergeToks . splitWhen' . reverse $ readParens [] input 0
+  in if isLeft string_depth then Left "failed to parse string depth" else
+    let string_depth' = Util.mapFst tokenize (fromRight [] string_depth)
+    in if (>0) . length $ filter (\(exp, _) -> isNothing exp) string_depth' then Left "Tokenization failed" else 
+    let tokens_depth = Util.mapFst fromJust string_depth'
+    in parse' tokens_depth
+  where 
+    parse' :: [(ToParse, Int)] -> Either String Expr
+    parse' [(Done exp, _)] = Right exp
+    parse' a        = 
+      let max_depth = foldl (\acc (exp, i) -> case exp of {Done _ -> acc; _ -> max i acc}) 0 a
+          toParse   = takeWhile (\(_, i) -> i == max_depth) (dropWhile (\(_, i)-> i /= max_depth) a) -- parses leftmost 'deepest' exp (based on parenthesis), might be 0 if no ()
+          precs     = map prec ( map fst toParse )
+      in if (>0) . length $ (filter isNothing precs) then Left "trying to parse op whose precedence is unspecified" else
+      let max_prec  = foldl (\hi i -> max hi i) 0 (map fromJust precs)
+          idx       = (fromJust $ findIndex (\(exp, i) -> (fromJust $ prec exp) == max_prec && i == max_depth) a)
+      in case a !? idx of
+          Nothing            -> Left "out of bounds idx access when looking for operator"
+          Just (UnO u, i)  -> let operand = get_adj_exp a (idx + 1)
+                              in if isLeft operand then operand else 
+                              let exp     = UnOp u (fromRight' operand) in
+                                parse' $ (take idx a) ++ [(Done $ exp, i - 1)] ++ (drop ( idx + 2) a)
+          Just (BinO b, i) -> let operand1 = get_adj_exp a (idx - 1)
+                              in if isLeft operand1 then operand1 else 
+                              let operand2 = get_adj_exp a (idx + 1) 
+                              in if isLeft operand2 then operand2 else 
+                              let exp      = BinOp b (fromRight' operand1) (fromRight' operand2)
+                              in parse' $ (take (idx - 1) a) ++ [(Done $ exp, i - 1)] ++ (drop ( idx + 2) a)
+          _                  -> error "Trying to re-eval an already evaled exp"
+
+    get_adj_exp a i =
+      let exp = a !? i in
+        case exp of 
+          Nothing            -> Left "adjacent expr was not accessible"
+          Just (UnO _, i)    -> Left "unop (unop expr): not supported (not necessary so far)"
+          Just (BinO _, i)   -> Left "Found 2 operands next to each other"
+          Just (Done exp, i) -> Right exp
+
+    tokenize :: String -> Maybe ToParse
+    tokenize s =
+      case readMaybe s :: Maybe UnOp of
+        Just uno -> return . UnO $ uno
+        Nothing  -> do
+          case readMaybe s :: Maybe BinOp of
+            Just bino -> return . BinO $ bino
+            Nothing   -> do
+              case readMaybe s :: Maybe Rational of 
+                Just r -> return . Done $ LReal r
+                Nothing -> 
+                  case toVar s of
+                    Just exp -> return . Done $ exp
+                    Nothing  -> Nothing
+    isRatio "" = False
+    isRatio r  = 
+        if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
+        case Util.split '%' r of 
+            (num:den:[]) | all isNumber num && all isNumber den -> True
+            _ -> False
+    toVar "" = Nothing
+    toVar n = 
+        case Util.split '.' n of 
+            (name:[])       | all (\c -> isAlphaNum c || c == '_') name  -> Just $ Var (name)
+            (name:field:[]) | all (\c -> isAlphaNum c || c == '_') name &&
+                              all (\c -> isAlphaNum c || c == '_') field ->
+                                case readMaybe field :: Maybe UnOp of
+                                  Just uno -> Nothing -- Doesn't make sense, unless there's two fields
+                                  Nothing  -> Just $ select (Var name) (Var field) -- TODO: assert later that this is a legal operation (i.e. check for existing token)
+            (name:field1:field2:[]) | all (\c -> isAlphaNum c || c == '_') name   &&
+                                      all (\c -> isAlphaNum c || c == '_') field1 &&
+                                      all (\c -> isAlphaNum c || c == '_') field2 ->
+                                        case readMaybe field1 :: Maybe UnOp of
+                                          Just R0 -> case readMaybe field2 :: Maybe UnOp of
+                                            Just T -> Just $ gett (getr0 $ (Var name))
+                                            Just V -> Just $ getv (getr0 $ (Var name))
+                                            _      -> Nothing 
+                                          Just R1 -> case readMaybe field2 :: Maybe UnOp of
+                                            Just T -> Just $ gett (getr1 $ (Var name))
+                                            Just V -> Just $ getv (getr1 $ (Var name))
+                                            _      -> Nothing 
+                                          _       -> Nothing 
+            _ -> Nothing
+    readParens :: [(Char, Int)] -> String -> Int -> [(Char, Int)]
+    readParens acc []       ctr 
+        | ctr > 0               = [] -- error wrong parenthesis
+    readParens acc []       ctr = acc
+    readParens acc ('(':[]) ctr = [] -- error wrong parenthesis
+    readParens acc ('(':cs) ctr = readParens acc cs (ctr + 1)
+    readParens acc (')':cs) ctr = readParens acc cs (ctr - 1)
+    readParens acc (c : cs) ctr = readParens ((c, ctr):acc) cs ctr
+
+    mergeToks :: Maybe [[(Char,Int)]] -> Either String [(String, Int)]
+    mergeToks Nothing = Left " mismatching parenthesis or tried to parse empty string "
+    mergeToks (Just ts) =
+        let ts' = filter (not . null) ts
+            is  = map (map snd) ts'
+            sum1 = map sum is
+            sum2 = map (\s -> (length s) * (case listToMaybe s of {Nothing -> 0; Just i -> i})) is in
+        if sum1 /= sum2 then Left "Couldn't split a token due to parenthesis" else
+        Right $ map (\l -> foldl (\(acc, j) (c, i) -> (acc ++ [c], i)) ("", 0) l) ts'
+
+    splitWhen' :: [(Char, Int)] -> Maybe [[(Char, Int)]]
+    splitWhen' a
+        | null a    = Nothing
+        | otherwise = Just $ splitWhen (\(c,i) -> elem c " \t\n") a 
+
+
+instance Read SToks where
+    readsPrec _ ('T':'O':'K':'E':'N':'S':input) = 
+        let (h, rest1  ) = readUntil '(' input in if h    == "!" then [] else
+        let (toks, rest) = readUntil ')' rest1 in if toks == "!" then [] else
+        let toks'  = Util.split ',' toks
+            toks'' = map (filter (\c -> c /= ' ')) toks'
+        in 
+            if (any (\x -> ((> 1) . length) $ words x) toks') then [] else 
+            if any (\s -> null s || all (\c -> c == ' ') s) toks'' then [] else
+        [(SToks $ toks'', rest)]
+    readsPrec _ _ = []
+
+instance Read UnOp where
+    readsPrec _ ('n':'o':'t':[]) = [(Not, "")]
+    readsPrec _ ('r':'0':[])     = [(R0, "")]
+    readsPrec _ ('r':'1':[])     = [(R1, "")]
+    readsPrec _ ('t':[])         = [(T, "")]
+    readsPrec _ ('v':[])         = [(V, "")]
+    readsPrec _ _ = []
+
+instance Read BinOp where
+    readsPrec _ ('+':[])     = [(Add, "")]
+    readsPrec _ ('*':[])     = [(Mul, "")]
+    readsPrec _ ('-':[])     = [(Sub, "")]
+    readsPrec _ ('/':[])     = [(Div, "")]
+    readsPrec _ ('<':[])     = [(Lt, "")]
+    readsPrec _ ('>':[])     = [(Gt, "")]
+    readsPrec _ ('=':[])     = [(Eq, "")]
+    readsPrec _ ('>':'=':[]) = [(Gteq, "")]
+    readsPrec _ ('|':'|':[]) = [(Or, "")]
+    readsPrec _ ('&':'&':[]) = [(And, "")]
+    readsPrec _ ('/':'=':[]) = [(Distinct, "")]
+    readsPrec _ ('=':'>':[]) = [(Implies, "")]
+    readsPrec _ _ = []
+
+instance Read SAMM where
+    readsPrec _ ('A':'M':'M':input) = 
+        let (name, rest1) = readTokUntil '(' input in if name == "!" then [] else
+        let (v0,   rest2) = readTokUntil ':' rest1 in if v0   == "!" then [] else
+        let (t0,   rest3) = readTokUntil ',' rest2 in if t0   == "!" then [] else
+        let (v1,   rest4) = readTokUntil ':' rest3 in if v1   == "!" then [] else
+        let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
+        if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
+                             && all isToken [t0, t1]
+                             && all isRatio [v0, v1]
+        then [(SAMM name (toVal v0, toName t0) (toVal v1, toName t1), rest)]
+        else []
+        where 
+            isRatio "" = False
+            isRatio r  = 
+                if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
+                case Util.split '%' r of 
+                    (num:den:[]) | all isNumber num && all isNumber den -> True
+                    _ -> False
+            isToken "" = False
+            isToken s  = s == "_" || all isAlphaNum s
+            toName "_" = Nothing
+            toName x   = pure x
+            toVal  "_" = Nothing
+            toVal  v   = readMaybe v :: Maybe Rational
+    readsPrec _ _ = [] -- no parse 

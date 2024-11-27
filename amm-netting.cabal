@@ -20,18 +20,22 @@ version:            0.1.0.0
 library netting-lib
     exposed-modules: Netting.AmmFuns,
                      Netting.Sem,
-                     Netting.SymTab,
-                     Netting.Symbolic.Basics,
-                     Netting.Symbolic.SymSem
+                     Netting.Symbolic.Repl,
+                     Netting.Symbolic.Sem,
+                     Netting.Symbolic.Interpreter.Parser,
+                     Netting.Symbolic.Interpreter.SymTab
                      -- Netting.Symbolic.SMT_opt
-    -- other-modules: Netting.Symbolic.Concurrency
+    other-modules: Netting.Symbolic.SMT,
+                   Netting.Symbolic.Utils
     build-depends: base,
                    containers,
                    random,
                    process,
                    extra,
                    directory,
-                   ghc
+                   ghc,
+                   extra,
+                   split
     hs-source-dirs: lib
     default-language: Haskell2010
 
@@ -50,9 +54,7 @@ executable amm-netting
                       netting-lib,
                       containers,
                       process,
-                      split,
-                      ghc,
-                      extra
+                      ghc
     hs-source-dirs:   app
     default-language: Haskell2010
 
@@ -64,8 +66,7 @@ test-suite tests
                    Examples.Example2,
                    Examples.Example3,
                    Examples.Example4,
-                   Examples.Example5,
-                   Examples.Example6,
+                   Examples.Example5,                   Examples.Example6,
                    OtherTests.RateAttack
     build-depends: base, 
                    tasty, 
