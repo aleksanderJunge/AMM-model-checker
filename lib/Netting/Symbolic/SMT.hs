@@ -39,6 +39,7 @@ buildSMTQuery (samms, susers, assertions) stmts stab (tokdec, toks) query guess 
     ++ baseAxioms
     ++ buildVars k (map ammName samms)
     ++ showStmts stmts
+    ++ posBalAssert (map name susers) toks k
     ++ (chain guess swappingAmms k)
     ++ unlines [ show $ decorateWithDepth query stab k ]
     ++ unlines ["(check-sat)"]
@@ -121,6 +122,12 @@ makeAmm (SAMM n (v, t) (v', t')) depth stab =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
         checkTok stab Nothing = True -- If token isn't declared, it's fine
+
+posBalAssert :: [String] -> [String] -> Int -> String
+posBalAssert ns toks k = 
+  unlines . concat $ map (go ([(n, tok) | n <- ns, tok <- toks])) [0..k]
+  where
+    go nstoks k = map (\(n, tok) -> "(assert (>= (select (select users" ++ (show k) ++ " \"" ++ n ++ "\") " ++ tok ++ ") 0))") nstoks
 
 -- TODO: incorporate last occurrence information, when solving for green/red states
 chain :: [ TxGuess ] -> [(String, [String], SwapDir)] -> Int -> String
