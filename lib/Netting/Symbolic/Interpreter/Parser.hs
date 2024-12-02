@@ -33,20 +33,22 @@ parse input =
           toParse   = takeWhile (\(_, i) -> i == max_depth) (dropWhile (\(_, i)-> i /= max_depth) a) -- parses leftmost 'deepest' exp (based on parenthesis), might be 0 if no ()
           precs     = map prec ( map fst toParse )
       in if (>0) . length $ (filter isNothing precs) then Left "trying to parse op whose precedence is unspecified" else
-      let max_prec  = foldl (\hi i -> max hi i) 0 (map fromJust precs)
+      let max_prec  =  foldl (\hi i -> max hi i) 0 (map fromJust precs)
           idx       = (fromJust $ findIndex (\(exp, i) -> (fromJust $ prec exp) == max_prec && i == max_depth) a)
       in case a !? idx of
           Nothing            -> Left "out of bounds idx access when looking for operator"
           Just (UnO u, i)  -> let operand = get_adj_exp a (idx + 1)
                               in if isLeft operand then operand else 
-                              let exp     = UnOp u (fromRight' operand) in
-                                parse' $ (take idx a) ++ [(Done $ exp, i - 1)] ++ (drop ( idx + 2) a)
+                              let exp     = UnOp u (fromRight' operand)
+                                  depth'   = if i == 0 then i else i - 1
+                              in parse' $ (take idx a) ++ [(Done $ exp, depth')] ++ (drop ( idx + 2) a)
           Just (BinO b, i) -> let operand1 = get_adj_exp a (idx - 1)
                               in if isLeft operand1 then operand1 else 
                               let operand2 = get_adj_exp a (idx + 1) 
                               in if isLeft operand2 then operand2 else 
                               let exp      = BinOp b (fromRight' operand1) (fromRight' operand2)
-                              in parse' $ (take (idx - 1) a) ++ [(Done $ exp, i - 1)] ++ (drop ( idx + 2) a)
+                                  depth'   = if i == 0 then i else i - 1
+                              in parse' $ (take (idx - 1) a) ++ [(Done $ exp, depth')] ++ (drop ( idx + 2) a)
           _                  -> error "Trying to re-eval an already evaled exp"
 
     get_adj_exp a i =

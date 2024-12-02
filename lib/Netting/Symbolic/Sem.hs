@@ -7,7 +7,6 @@ import Netting.Symbolic.Utils
 import Text.Read
 import Data.List.Extra
 import Data.Char
-import Debug.Trace
 import Data.Ratio
 import Data.Maybe
 import Data.Tuple

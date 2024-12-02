@@ -94,9 +94,6 @@
 ((as const (Array String (Array Token Real)))
          ((as const (Array Token Real)) 0.0)))
 
-(define-fun baseWal () (Array Token Real)
-((as const (Array Token Real)) 0.0))
-
 ( declare-const txn0 Txn)
 
 ( declare-const t0t1_0 Amm)
@@ -133,8 +130,8 @@
 
 (assert 
     (or 
-        (> 0 (v (r0 t0t1_0)))
-        (> 0 (v (r1 t0t1_0)))
+        (>= 0 (v (r0 t0t1_0)))
+        (>= 0 (v (r1 t0t1_0)))
     )
 )
 (check-sat)
@@ -152,14 +149,14 @@
 (assert (= witness_amm (fst (swaplr users0 witness t0t1_0))))
 
 ; Transaction isn't rejected:
-(assert (not (= t0t1_0 witness_amm)))
+;(assert (not (= t0t1_0 witness_amm)))
 
 ; swapping from/to fields match the input AMM!
 (assert (= (t (from witness)) (t (r0 t0t1_0))))
 (assert (= (t (to   witness)) (t (r1 t0t1_0))))
 
 ( assert (= (user witness) "A"))
-( assert (> (v (from witness)) 0 ))
+( assert (>= (v (from witness)) 0 ))
 
 ; ############ search for witness #############
 

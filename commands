@@ -1,0 +1,8 @@
+TOKENS (t0, t1)
+AMM t0t1 (100%1 : t0, 10%1 : t1)
+USER alberto (1000%1 : t0, 1000%1 : t1)
+USER aleks   (1000%1 : t0, 1000%1 : t1)
+next
+done
+aleks.t1 = 990%1 && aleks.t0 > 1000%1 && alberto.t0 + alberto.t1 > 2080%1
+4
