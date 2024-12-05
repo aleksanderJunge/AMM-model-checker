@@ -177,7 +177,7 @@ instance Show Assert where
 
 data SMTStmt a b = Dec a | Ass b
 
-data SType = DTok | DAmm | DUser | DUsers deriving (Eq, Ord, Show)
+data SType = DTok | DAmm | DUser | DUsers | Symval deriving (Eq, Ord, Show)
 
 -- we only provide input for t, v, and wallet if those are to be "named" and constrained, otherwise leave unconstrained
 data SAMM = SAMM

@@ -81,25 +81,23 @@
          ((as const (Array Token Real)) 0.0)))
 (define-fun baseWal () (Array Token Real)
 ((as const (Array Token Real)) 0.0))
+
 ( declare-const state0 State)
-
-( declare-const txn0 Txn)
 ( declare-const state1 State)
-
-( declare-const txn1 Txn)
 ( declare-const state2 State)
-
-( declare-const txn2 Txn)
 ( declare-const state3 State)
-
-( declare-const txn3 Txn)
 ( declare-const state4 State)
 
-(assert (= (users state0) 
+( declare-const txn0 Txn)
+( declare-const txn1 Txn)
+( declare-const txn2 Txn)
+( declare-const txn3 Txn)
+
+(assert (= (users state0) ...))
+(assert (= (amms state0) ...))
 (store (store baseUsers "A" (store (store (store baseWal t0 (/ 0 1)) t1 (/ 0 1)) t2 (/ 4 1))) "B" (store (store (store baseWal t0 (/ 4 1)) t1 (/ 0 1)) t2 (/ 0 1)))
 ))
 
-(assert (= (amms state0) 
 (store (store (store hempt t0 (store lempt t1 (just (amm (amount t0 (/ 12 1)) (amount t1 (/ 12 1)))))) t1 (store (store lempt t0 (just (amm (amount t0 (/ 12 1)) (amount t1 (/ 12 1))))) t2 (just (amm (amount t1 (/ 12 1)) (amount t2 (/ 12 1)))))) t2 (store lempt t1 (just (amm (amount t1 (/ 12 1)) (amount t2 (/ 12 1))))))
 ))
 

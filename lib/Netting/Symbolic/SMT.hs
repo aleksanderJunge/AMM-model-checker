@@ -15,7 +15,7 @@ import qualified Text.Read as TR
 import System.IO
 
 -- We currently only support "EF (Property)"
-data Query = EF Expr
+data Query = EF Expr | INIT Expr
   deriving (Show) --TODO: remove this
 
 type Symtable = Env String SType
@@ -28,22 +28,25 @@ instance Show SwapDir where
   show LR = "lr"
   show RL = "rl"
 
-buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Symtable -> (String, [String]) -> Query -> [TxGuess] -> Int -> Either String String
+buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Symtable -> (String, [String]) -> [Query] -> [TxGuess] -> Int -> Either String String
 buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
-buildSMTQuery (samms, susers, assertions) stmts stab (tokdec, toks) query guess k =
+buildSMTQuery (samms, susers, assertions) stmts stab (tokdec, toks) queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms []
+        (symdecls, stab') = createSymvals samms stab k
     in Right $
     unlines [ tokdec ] 
     ++ baseAxioms
     ++ buildVars k (map ammName samms)
-    ++ showStmts stmts
+    ++ showStmts (stmts ++ symdecls)
+    ++ unlines (map (show . decorateWithDepth stab 0) [ exp | INIT exp <- queries])
     ++ posBalAssert (map name susers) toks k
     ++ (chain guess swappingAmms k)
-    ++ unlines [ show $ decorateWithDepth query stab k ]
+    ++ unlines (map (show . decorateWithDepth stab k) [ exp | EF exp <- queries])
     ++ unlines ["(check-sat)"]
-    ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [1..k])
+    ++ unlines (getSymVals stab')
+    ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ show <$> [1..k])
     where
       ammsToUse [] amms acc = acc
       ammsToUse (guess:guesses) amms acc = 
@@ -58,8 +61,8 @@ buildSMTQuery (samms, susers, assertions) stmts stab (tokdec, toks) query guess 
 
   
 -- this could be somewhat limiting in the sense that there's no way to compare variables across different time steps in the query language
-decorateWithDepth :: Query -> Symtable -> Int -> Assert
-decorateWithDepth (EF exp) stab k =
+decorateWithDepth :: Symtable -> Int -> Expr -> Assert
+decorateWithDepth stab k exp =
   Assert $ decorate exp stab k 
   where 
     decorate :: Expr -> Symtable -> Int -> Expr
@@ -74,6 +77,20 @@ decorateWithDepth (EF exp) stab k =
     decorate (BinOp binop e1 e2) stab k    = BinOp binop (decorate e1 stab k) (decorate e2 stab k)
     decorate (TerOp terop e1 e2 e3) stab k = TerOp terop (decorate e1 stab k) (decorate e2 stab k) (decorate e3 stab k)
     decorate exp _ _ = exp
+
+getSymVals :: Symtable -> [String]
+getSymVals stab =
+  let vals = map fst (filter (\(k,v) -> v == Symval) (M.toList stab))
+  in map (\s -> "(get-value (" ++ s ++ "))") vals
+
+createSymvals :: [SAMM] -> Symtable -> Int -> ([SMTStmt Decl Assert], Symtable)
+createSymvals samms stab k =
+  let r0pairs = map (\(SAMM n (v, t) (_, _)) -> bindIfNull stab getr0 v t n k) samms
+      r1pairs = map (\(SAMM n (_, _) (v', t')) -> bindIfNull stab getr1 v' t' n k) samms
+      stab'   = foldl (\acc st -> M.union st acc) stab  (map snd r0pairs)
+      stab''' = foldl (\acc st -> M.union st acc) stab' (map snd r1pairs)
+      decls   = concat $ (map fst r0pairs) ++ (map fst r1pairs)
+  in (decls, stab''')
 
 getCombinations :: ([SAMM], [SUser]) -> Int -> [[[TxGuess]]]
 getCombinations (samms, susers) k =
@@ -99,9 +116,17 @@ getCombinations (samms, susers) k =
                 | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
                 | otherwise = check_tx tx txs
 
+bindIfNull :: Symtable -> (Expr -> Expr) -> Maybe Rational -> Maybe String -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
+bindIfNull stab get v t n k | null v = 
+  let stab' = bind stab (n ++ "." ++ (fromJust t) ++ "_" ++ (show k), Symval)
+      decl  = Dec $ DeclVar (n ++ "." ++ (fromJust t) ++ "_" ++ (show k)) TReal
+      conn  = Ass . Assert $ eq (Var $ n ++ "." ++ (fromJust t) ++ "_" ++ (show k)) (getv . get $ Var (n ++ "_" ++ (show k)))
+  in
+  ([decl, conn], stab')
+bindIfNull stab _ _ _ _ _ = ([], stab)
  
 -- TODO: enable parsing more numbers and check for subzero
-makeAmm :: SAMM -> Int -> Symtable -> Either String ([SMTStmt Decl Assert], Env String SType)
+makeAmm :: SAMM -> Int -> Symtable -> Either String ([SMTStmt Decl Assert], Symtable)
 makeAmm (SAMM n (v, t) (v', t')) depth stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
     else if not (checkTok stab t)  then Left $ "Token: " ++ (fromMaybe "?" t ) ++ " doesn't exist" ++ " in stab: " ++ (show stab)
@@ -116,7 +141,9 @@ makeAmm (SAMM n (v, t) (v', t')) depth stab =
         pos_v   = if null val_v  then [Ass . Assert $ lt (LReal 0) (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] else []
         pos_v'  = if null val_v' then [Ass . Assert $ lt (LReal 0) (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] else []
         stab' = bind stab (n, DAmm)
-    in Right (amm_name ++ val_v ++ val_v' ++ val_t ++ val_t' ++ distinctness ++ pos_v ++ pos_v', stab')
+        (decls, stab'')   = bindIfNull stab'  getr0 v  t  n depth
+        (decls', stab''') = bindIfNull stab'' getr1 v' t' n depth
+    in Right (amm_name ++ val_v ++ val_v' ++ val_t ++ val_t' ++ distinctness ++ pos_v ++ pos_v' ++ decls ++ decls', stab''')
     where 
         checkTok stab (Just tok_name) =
             let tt = get stab tok_name in
@@ -147,7 +174,7 @@ chain guesses amms k =
           , concat $ map (\s -> "(assert (= " ++ (s ++ "_" ++ (show k)) ++ " " ++ (s ++ "_" ++ (show (k - 1))) ++ "))") ns ])
       
 
-collectUsers :: Env String SType -> Int -> Either String ([SMTStmt Decl Assert], Env String SType)
+collectUsers :: Symtable -> Int -> Either String ([SMTStmt Decl Assert], Symtable)
 collectUsers stab i = 
     let cname      = "users" ++ (show i) in
     if isJust (get stab cname ) then Left $ " user collection already defined for depth: " ++ (show i) else
@@ -170,7 +197,7 @@ buildVars k amms =
             , unlines (map (\s ->"( declare-const " ++ s ++ "_" ++ (show i) ++ " Amm)") amms)] : s)
 
 -- TODO: opt point, maybe completely concretize wallet by storing rather than selecting tokens from it 
-makeUser :: SUser -> Symtable -> Either String ([SMTStmt Decl Assert], Env String SType)
+makeUser :: SUser -> Symtable -> Either String ([SMTStmt Decl Assert], Symtable)
 makeUser (SUser wal n) stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
     else if any (\t -> not $ checkTok stab t) (map fst wal)  then Left $ " one or more tokens not found in: " ++ show stab
@@ -193,7 +220,7 @@ makeUser (SUser wal n) stab =
             if isJust tt && (fromJust tt == DTok) then True else False
 
 -- given a list of names, declares these to be the set of tokens
-declToks :: SToks -> Symtable -> Either String (String, Env String SType, [String]) -- third element is the list of tokens declared (to be used in haskell for further processing)
+declToks :: SToks -> Symtable -> Either String (String, Symtable, [String]) -- third element is the list of tokens declared (to be used in haskell for further processing)
 declToks (SToks toks) stab =
     if elem DTok (codomain stab) then Left "Tokens have already been declared!" else
         let stab' = foldl (\st tok -> bind st (tok, DTok)) stab toks
