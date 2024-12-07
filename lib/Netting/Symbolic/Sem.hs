@@ -44,6 +44,7 @@ data UnOp
     = Not
     | R0 | R1
     | T  | V
+    | Fee
     deriving (Eq, Ord)
 
 instance Show UnOp where
@@ -53,6 +54,7 @@ instance Show UnOp where
         R1  -> "r1"
         T   -> "t"
         V   -> "v"
+        Fee -> "fee"
 
 data BinOp
     = Add | Mul | Sub | Div
@@ -88,12 +90,13 @@ instance Show TerOp where
         Store -> "store"
         Ite -> "ite"
         
-lnot, getr0, getr1, gett, getv :: Expr -> Expr
+lnot, getr0, getr1, gett, getv, gfee :: Expr -> Expr
 lnot   = UnOp Not
 getr0  = UnOp R0
 getr1  = UnOp R1
 gett   = UnOp T
 getv   = UnOp V
+gfee   = UnOp Fee
 
 add, mul, sub, div, lt, gt, eq, lor, land, xor, implies, distinct, select :: Expr -> Expr -> Expr
 add   = BinOp Add
@@ -179,11 +182,14 @@ data SMTStmt a b = Dec a | Ass b
 
 data SType = DTok | DAmm | DUser | DUsers | Symval deriving (Eq, Ord, Show)
 
+data TFee r = Conc r | Sym | None deriving (Show, Eq)
+
 -- we only provide input for t, v, and wallet if those are to be "named" and constrained, otherwise leave unconstrained
 data SAMM = SAMM
     { ammName :: String
-    , r0      :: (Maybe Rational, Maybe String)
-    , r1      :: (Maybe Rational, Maybe String) }
+    , r0      :: (Maybe Rational, String)
+    , r1      :: (Maybe Rational, String)
+    , fee     :: TFee Rational}
     deriving (Show, Eq)
     
 data SToks = SToks [String] deriving (Show)

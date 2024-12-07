@@ -24,7 +24,9 @@ repl = do
   (tokdecl, stab', toknames) <- toks_ symtab 
   --putStrLn "Define initial state"
   (stab'', stmts, amms, users) <- init_ stab' [] [] []
-  let combs =  getCombinations (amms, users) 4
+  let useFee = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
+      combs  =  getCombinations useFee (amms, users) 4
+  let defaultFees = if useFee then setDefaultFees amms 0 [] else []
   case collectUsers stab'' 0 of
     Left e -> putStrLn "you probably defined a variable called users0, it's reserved... start over"
     Right (users0, stab''') -> do
@@ -34,7 +36,7 @@ repl = do
         (constraints) <- constrain []
         ----putStrLn "How deep to check?"
         depth <- getDepth
-        satResult <- check (buildSMTQuery (amms,users,[]) (stmts ++ users0) stab''' (tokdecl, toknames) constraints) [1..depth] combs
+        satResult <- check (buildSMTQuery (amms,users,[]) (stmts ++ defaultFees ++ users0) useFee stab''' (tokdecl, toknames) constraints) [1..depth] combs
         case satResult of
             Nothing -> do {putStrLn "no solution found"; return ()}
             res@(Just (depth, model)) -> do
@@ -42,7 +44,7 @@ repl = do
                 model' <- model
                 putStrLn model'
                 --repl 
-  where 
+  where
     toks_ stab = do
       --putStr ">> "
       --hFlush stdout

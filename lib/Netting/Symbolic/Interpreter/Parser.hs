@@ -1,6 +1,5 @@
 module Netting.Symbolic.Interpreter.Parser where
 
-import Control.Monad
 import Data.Maybe
 import Netting.Sem
 import Netting.AmmFuns
@@ -14,9 +13,43 @@ import Data.Either
 import Data.Either.Extra
 import Data.Char
 import Text.Read hiding (prec)
+import Debug.Trace
 
 type ToParse = ParseHelper Expr UnOp BinOp
-
+--parse :: String -> Either String Expr
+--parse input = 
+--  let string_depth = mergeToks . splitWhen' . reverse $ readParens [] input 0
+--  in if isLeft string_depth then Left "failed to parse string depth" else
+--    let string_depth' = Util.mapFst tokenize (fromRight [] string_depth)
+--    in if (>0) . length $ filter (\(exp, _) -> isNothing exp) string_depth' then Left "Tokenization failed" else 
+--    let tokens_depth = Util.mapFst fromJust string_depth'
+--    in parse' tokens_depth
+--  where 
+--    parse' :: [(ToParse, Int)] -> Either String Expr
+--    parse' [(Done exp, _)] = Right exp
+--    parse' a        = 
+--      let max_depth = foldl (\acc (exp, i) -> case exp of {Done _ -> acc; _ -> max i acc}) 0 a
+--          toParse   = takeWhile (\(_, i) -> i == max_depth) (dropWhile (\(_, i)-> i /= max_depth) a) -- parses leftmost 'deepest' exp (based on parenthesis), might be 0 if no ()
+--          precs     = map prec ( map fst toParse )
+--      in if (>0) . length $ (filter isNothing precs) then Left "trying to parse op whose precedence is unspecified" else
+--      let max_prec  =  foldl (\hi i -> max hi i) 0 (map fromJust precs)
+--          idx       = (fromJust $ findIndex (\(exp, i) -> (fromJust $ prec exp) == max_prec && i == max_depth) a)
+--      in case a !? idx of
+--          Nothing            -> Left "out of bounds idx access when looking for operator"
+--          Just (UnO u, i)  -> let operand = get_adj_exp a (idx + 1)
+--                              in if isLeft operand then operand else 
+--                              let exp     = UnOp u (fromRight' operand)
+--                                  depth'   = if i == 0 then i else i - 1
+--                              in parse' $ (take idx a) ++ [(Done $ exp, depth')] ++ (drop ( idx + 2) a)
+--          Just (BinO b, i) -> let operand1 = get_adj_exp a (idx - 1)
+--                              in if isLeft operand1 then operand1 else 
+--                              let operand2 = get_adj_exp a (idx + 1) 
+--                              in if isLeft operand2 then operand2 else 
+--                              let exp      = BinOp b (fromRight' operand1) (fromRight' operand2)
+--                                  depth'   = if i == 0 then i else i - 1
+--                              in parse' $ (take (idx - 1) a) ++ [(Done $ exp, depth')] ++ (drop ( idx + 2) a)
+--          _                  -> error "Trying to re-eval an already evaled exp"
+--
 parse :: String -> Either String Expr
 parse input = 
   let string_depth = mergeToks . splitWhen' . reverse $ readParens [] input 0
@@ -24,40 +57,49 @@ parse input =
     let string_depth' = Util.mapFst tokenize (fromRight [] string_depth)
     in if (>0) . length $ filter (\(exp, _) -> isNothing exp) string_depth' then Left "Tokenization failed" else 
     let tokens_depth = Util.mapFst fromJust string_depth'
-    in parse' tokens_depth
+    in case parseRec tokens_depth of
+      Right [(Done exp, _)] -> Right exp
+      Right _ -> Left "parsing didn't result in single exp"
+      Left e  -> Left e
   where 
-    parse' :: [(ToParse, Int)] -> Either String Expr
-    parse' [(Done exp, _)] = Right exp
+    parseRec :: [(ToParse, Int)] -> Either String [(ToParse, Int)]
+    parseRec [single] = Right [single]
+    parseRec inp = 
+      let max_depth = foldl (\acc (exp, i) -> case exp of {Done _ -> acc; _ -> max i acc}) 0 inp
+          toParse = takeWhile (\(_, i) -> i == max_depth) (dropWhile (\(_, i)-> i /= max_depth) inp) -- parses leftmost 'deepest' exp (based on parenthesis), might be 0 if no ()
+          front   = takeWhile (\(_, i) -> i /= max_depth) inp
+          back   = drop (length front + length toParse) inp
+      in case parse' (map fst toParse) of 
+            Right exp -> parseRec (front ++ [(Done exp, max_depth - 1)] ++ back)
+            Left e    -> Left e
+
+    parse' :: [ToParse] -> Either String Expr -- assumes a flat structure with no parenthesis
+    parse' [(Done exp)] = Right exp
     parse' a        = 
-      let max_depth = foldl (\acc (exp, i) -> case exp of {Done _ -> acc; _ -> max i acc}) 0 a
-          toParse   = takeWhile (\(_, i) -> i == max_depth) (dropWhile (\(_, i)-> i /= max_depth) a) -- parses leftmost 'deepest' exp (based on parenthesis), might be 0 if no ()
-          precs     = map prec ( map fst toParse )
+      let precs     = map prec a
       in if (>0) . length $ (filter isNothing precs) then Left "trying to parse op whose precedence is unspecified" else
       let max_prec  =  foldl (\hi i -> max hi i) 0 (map fromJust precs)
-          idx       = (fromJust $ findIndex (\(exp, i) -> (fromJust $ prec exp) == max_prec && i == max_depth) a)
+          idx       = fromJust $ findIndex (\exp -> (fromJust $ prec exp) == max_prec) a
       in case a !? idx of
-          Nothing            -> Left "out of bounds idx access when looking for operator"
-          Just (UnO u, i)  -> let operand = get_adj_exp a (idx + 1)
-                              in if isLeft operand then operand else 
-                              let exp     = UnOp u (fromRight' operand)
-                                  depth'   = if i == 0 then i else i - 1
-                              in parse' $ (take idx a) ++ [(Done $ exp, depth')] ++ (drop ( idx + 2) a)
-          Just (BinO b, i) -> let operand1 = get_adj_exp a (idx - 1)
-                              in if isLeft operand1 then operand1 else 
-                              let operand2 = get_adj_exp a (idx + 1) 
-                              in if isLeft operand2 then operand2 else 
-                              let exp      = BinOp b (fromRight' operand1) (fromRight' operand2)
-                                  depth'   = if i == 0 then i else i - 1
-                              in parse' $ (take (idx - 1) a) ++ [(Done $ exp, depth')] ++ (drop ( idx + 2) a)
-          _                  -> error "Trying to re-eval an already evaled exp"
+          Nothing       -> Left "out of bounds idx access when looking for operator"
+          Just (UnO u)  -> let operand = get_adj_exp a (idx + 1)
+                           in if isLeft operand then operand else 
+                           let exp     = UnOp u (fromRight' operand)
+                           in parse' $ (take idx a) ++ [Done exp] ++ (drop ( idx + 2) a)
+          Just (BinO b) -> let operand1 = get_adj_exp a (idx - 1)
+                           in if isLeft operand1 then operand1 else 
+                           let operand2 = get_adj_exp a (idx + 1) 
+                           in if isLeft operand2 then operand2 else 
+                           let exp      = BinOp b (fromRight' operand1) (fromRight' operand2)
+                           in parse' $ (take (idx - 1) a) ++ [Done exp] ++ (drop ( idx + 2) a)
+          _             -> error "Trying to re-eval an already evaled exp"
 
     get_adj_exp a i =
-      let exp = a !? i in
-        case exp of 
-          Nothing            -> Left "adjacent expr was not accessible"
-          Just (UnO _, i)    -> Left "unop (unop expr): not supported (not necessary so far)"
-          Just (BinO _, i)   -> Left "Found 2 operands next to each other"
-          Just (Done exp, i) -> Right exp
+        case a !? i of 
+          Nothing         -> Left "adjacent expr was not accessible"
+          Just (UnO _)    -> Left "unop (unop expr): not supported (not necessary so far)"
+          Just (BinO _)   -> Left "Found 2 operands next to each other"
+          Just (Done exp) -> Right exp
 
     tokenize :: String -> Maybe ToParse
     tokenize s =
@@ -86,7 +128,8 @@ parse input =
             (name:field:[]) | all (\c -> isAlphaNum c || c == '_') name &&
                               all (\c -> isAlphaNum c || c == '_') field ->
                                 case readMaybe field :: Maybe UnOp of
-                                  Just uno -> Nothing -- Doesn't make sense, unless there's two fields
+                                  Just Fee -> Just $ gfee (Var name) 
+                                  Just _   -> Nothing -- other unary field operations are not permitted. (except indexing for tokens, see below)
                                   Nothing  -> Just $ select (Var name) (Var field) -- TODO: assert later that this is a legal operation (i.e. check for existing token)
             (name:field1:field2:[]) | all (\c -> isAlphaNum c || c == '_') name   &&
                                       all (\c -> isAlphaNum c || c == '_') field1 &&
@@ -140,6 +183,7 @@ instance Read SToks where
     readsPrec _ _ = []
 
 instance Read UnOp where
+    readsPrec _ ('f':'e':'e':[]) = [(Fee, "")]
     readsPrec _ ('n':'o':'t':[]) = [(Not, "")]
     readsPrec _ ('r':'0':[])     = [(R0, "")]
     readsPrec _ ('r':'1':[])     = [(R1, "")]
@@ -168,12 +212,26 @@ instance Read SAMM where
         let (v0,   rest2) = readTokUntil ':' rest1 in if v0   == "!" then [] else
         let (t0,   rest3) = readTokUntil ',' rest2 in if t0   == "!" then [] else
         let (v1,   rest4) = readTokUntil ':' rest3 in if v1   == "!" then [] else
-        let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
-        if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
-                             && all isToken [t0, t1]
-                             && all isRatio [v0, v1]
-        then [(SAMM name (toVal v0, toName t0) (toVal v1, toName t1), rest)]
-        else []
+        case Util.split ':' rest4 of -- TODO: clean this up too much duplicated 
+          [_] -> 
+            let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
+            if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
+                                && all (all isAlphaNum) [t0, t1]
+                                && all isRatio [v0, v1]
+            then [(SAMM name (toVal v0, t0) (toVal v1, t1) None, rest)]
+            else []
+          t_and_val : fee : [] -> 
+            let (t1,  rest5)  = readTokUntil ',' rest4 in if t1   == "!" then [] else
+            let (vFee, rest6) = readTokUntil ':' rest5 in if vFee == "!" then [] else
+            let (tFee, rest)  = readTokUntil ')' rest6 in if tFee == "!" then [] else
+            if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
+                                && all (all isAlphaNum) [t0, t1]
+                                && all isRatio [v0, v1]
+                                && isRatio vFee
+                                && (==) "fee" tFee
+            then [(SAMM name (toVal v0, t0) (toVal v1, t1) (toValFee vFee), rest)]
+            else []
+          _ -> []
         where 
             isRatio "" = False
             isRatio r  = 
@@ -181,10 +239,11 @@ instance Read SAMM where
                 case Util.split '%' r of 
                     (num:den:[]) | all isNumber num && all isNumber den -> True
                     _ -> False
-            isToken "" = False
-            isToken s  = s == "_" || all isAlphaNum s
-            toName "_" = Nothing
-            toName x   = pure x
             toVal  "_" = Nothing
             toVal  v   = readMaybe v :: Maybe Rational
+            toValFee  "_" = Sym
+            toValFee  v   = 
+              case readMaybe v :: Maybe Rational of
+                Just r -> Conc r
+                Nothing -> None
     readsPrec _ _ = [] -- no parse 

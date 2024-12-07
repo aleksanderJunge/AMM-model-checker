@@ -14,6 +14,8 @@ import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
 
+import Debug.Trace
+
 -- We currently only support "EF (Property)"
 data Query = EF Expr | INIT Expr
   deriving (Show) --TODO: remove this
@@ -28,16 +30,16 @@ instance Show SwapDir where
   show LR = "lr"
   show RL = "rl"
 
-buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Symtable -> (String, [String]) -> [Query] -> [TxGuess] -> Int -> Either String String
-buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
-buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
-buildSMTQuery (samms, susers, assertions) stmts stab (tokdec, toks) queries guess k =
+buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Bool -> Symtable -> (String, [String]) -> [Query] -> [TxGuess] -> Int -> Either String String
+buildSMTQuery ([], _, _) _ _ _ _ _ _ _ = Left "No AMMS"
+buildSMTQuery (_, [], _) _ _ _ _ _ _ _ = Left "No Users"
+buildSMTQuery (samms, susers, assertions) stmts useFee stab (tokdec, toks) queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms []
         (symdecls, stab') = createSymvals samms stab k
     in Right $
     unlines [ tokdec ] 
-    ++ baseAxioms
+    ++ baseAxioms useFee
     ++ buildVars k (map ammName samms)
     ++ showStmts (stmts ++ symdecls)
     ++ unlines (map (show . decorateWithDepth stab 0) [ exp | INIT exp <- queries])
@@ -52,10 +54,10 @@ buildSMTQuery (samms, susers, assertions) stmts stab (tokdec, toks) queries gues
       ammsToUse (guess:guesses) amms acc = 
         let t0 = snd3 guess 
             t1 = thd3 guess in 
-        case find (\(SAMM _ r0' r1') -> ((fromJust . snd $ r0') == t0 && (fromJust . snd $ r1') == t1)) amms of
+        case find (\(SAMM _ r0' r1' _) -> ((snd $ r0') == t0 && (snd $ r1') == t1)) amms of
             Just samm -> ammsToUse guesses amms (acc ++ [(ammName samm, map ammName (delete samm amms), LR)])
             Nothing -> 
-              case find (\(SAMM _ r0' r1') -> (fromJust . snd $ r1') == t0 && (fromJust . snd $ r0') == t1) amms of 
+              case find (\(SAMM _ r0' r1' _) -> (snd $ r1') == t0 && (snd $ r0') == t1) amms of 
                 Just samm -> ammsToUse guesses amms (acc ++ [(ammName samm, map ammName (delete samm amms), RL)])
                 Nothing   -> error "no amm on this token pair" -- TODO: handle better
 
@@ -85,17 +87,17 @@ getSymVals stab =
 
 createSymvals :: [SAMM] -> Symtable -> Int -> ([SMTStmt Decl Assert], Symtable)
 createSymvals samms stab k =
-  let r0pairs = map (\(SAMM n (v, t) (_, _)) -> bindIfNull stab getr0 v t n k) samms
-      r1pairs = map (\(SAMM n (_, _) (v', t')) -> bindIfNull stab getr1 v' t' n k) samms
+  let r0pairs = map (\(SAMM n (v, t) (_, _) _) -> bindIfNullr stab getr0 v t n k) samms
+      r1pairs = map (\(SAMM n (_, _) (v', t') _) -> bindIfNullr stab getr1 v' t' n k) samms
       stab'   = foldl (\acc st -> M.union st acc) stab  (map snd r0pairs)
       stab''' = foldl (\acc st -> M.union st acc) stab' (map snd r1pairs)
       decls   = concat $ (map fst r0pairs) ++ (map fst r1pairs)
   in (decls, stab''')
 
-getCombinations :: ([SAMM], [SUser]) -> Int -> [[[TxGuess]]]
-getCombinations (samms, susers) k =
+getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxGuess]]]
+getCombinations useFee (samms, susers) k =
   -- TODO: do more error checking here, such as checking for that length of unqieu elems = original list... etc.
-  let token_pairs' = map (\(SAMM _ r0' r1') -> (fromJust . snd $ r0', fromJust . snd $ r1')) samms
+  let token_pairs' = map (\(SAMM _ r0' r1' _) -> (snd r0', snd r1')) samms
       tokens        = nub . concat $ map (\(a, b) -> [a, b]) token_pairs'
       token_pairs  = S.fromList token_pairs'
       names         = map name susers
@@ -103,7 +105,7 @@ getCombinations (samms, susers) k =
                                       (S.member (t0, t1) token_pairs) || (S.member (t1, t0) token_pairs) ]
       ks            = [1..k]
       guesses       = map (getGuesses combinations) ks
-  in  map (filter check_adjacent_txns) guesses
+  in  if useFee then guesses else map (filter check_adjacent_txns) guesses
   where
     getGuesses combs k = sequence $ replicate k combs
     check_adjacent_txns [] = True
@@ -116,39 +118,57 @@ getCombinations (samms, susers) k =
                 | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
                 | otherwise = check_tx tx txs
 
-bindIfNull :: Symtable -> (Expr -> Expr) -> Maybe Rational -> Maybe String -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
-bindIfNull stab get v t n k | null v = 
-  let stab' = bind stab (n ++ "." ++ (fromJust t) ++ "_" ++ (show k), Symval)
-      decl  = Dec $ DeclVar (n ++ "." ++ (fromJust t) ++ "_" ++ (show k)) TReal
-      conn  = Ass . Assert $ eq (Var $ n ++ "." ++ (fromJust t) ++ "_" ++ (show k)) (getv . get $ Var (n ++ "_" ++ (show k)))
+bindIfNullr :: Symtable -> (Expr -> Expr) -> Maybe Rational -> String -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
+bindIfNullr stab get v t n k | null v = 
+  let stab' = bind stab (n ++ "." ++ t ++ "_" ++ (show k), Symval)
+      decl  = Dec $ DeclVar (n ++ "." ++ t ++ "_" ++ (show k)) TReal
+      conn  = Ass . Assert $ eq (Var $ n ++ "." ++ t ++ "_" ++ (show k)) (getv . get $ Var (n ++ "_" ++ (show k)))
   in
   ([decl, conn], stab')
-bindIfNull stab _ _ _ _ _ = ([], stab)
+bindIfNullr stab _ _ _ _ _ = ([], stab)
+
+bindIfNullFee :: Symtable -> Maybe Rational -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
+bindIfNullFee stab v n k = 
+  let stab' = bind stab (n ++ ".fee", Symval)
+      decl  = [Dec $ DeclVar (n ++ ".fee") TReal]
+      conn  = map (\i -> Ass . Assert $ eq (Var $ n ++ ".fee") (gfee $ Var (n ++ "_" ++ (show i)))) [0..k]
+  in
+  (decl ++ conn, stab')
  
+setDefaultFees :: [SAMM] -> Int -> [SMTStmt Decl Assert] -> [SMTStmt Decl Assert]
+setDefaultFees [] _ acc = acc
+setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) depth acc =
+  setDefaultFees samms depth (acc ++ (if fee == None then [Ass . Assert $ eq (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 1) ] else []))
+
 -- TODO: enable parsing more numbers and check for subzero
 makeAmm :: SAMM -> Int -> Symtable -> Either String ([SMTStmt Decl Assert], Symtable)
-makeAmm (SAMM n (v, t) (v', t')) depth stab =
+makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
-    else if not (checkTok stab t)  then Left $ "Token: " ++ (fromMaybe "?" t ) ++ " doesn't exist" ++ " in stab: " ++ (show stab)
-    else if not (checkTok stab t') then Left $ "Token: " ++ (fromMaybe "?" t') ++ " doesn't exist" ++ " in stab: " ++ (show stab)
+    else if not (checkTok stab t)  then Left $ "Token: " ++ t  ++ " doesn't exist" ++ " in stab: " ++ (show stab)
+    else if not (checkTok stab t') then Left $ "Token: " ++ t' ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else 
     let amm_name = singleton . Dec $ DeclVar (n ++ "_" ++ (show depth)) TAmm
         val_v    = fromMaybe [] ( v  >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] ))
         val_v'   = fromMaybe [] ( v' >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] ))
-        val_t    = fromMaybe [] ( t  >>= (\t -> Just [Ass . Assert $ eq (LTok  t)  (gett . getr0 $ Var (n ++ "_" ++ (show depth)))] ))
-        val_t'   = fromMaybe [] ( t' >>= (\t -> Just [Ass . Assert $ eq (LTok  t)  (gett . getr1 $ Var (n ++ "_" ++ (show depth)))] ))
+        val_f    = case fee of 
+          Conc r -> [Ass . Assert $ eq (LReal r)  (gfee $ Var (n ++ "_" ++ (show depth)))] 
+          _      -> []
+        val_t    = [Ass . Assert $ eq (LTok t)  (gett . getr0 $ Var (n ++ "_" ++ (show depth)))]
+        val_t'   = [Ass . Assert $ eq (LTok t') (gett . getr1 $ Var (n ++ "_" ++ (show depth)))]
         distinctness = [Ass . Assert $ distinct (gett . getr0 $ Var (n ++ "_" ++ (show depth))) (gett . getr1 $ Var (n ++ "_" ++ (show depth)))]
         pos_v   = if null val_v  then [Ass . Assert $ lt (LReal 0) (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] else []
         pos_v'  = if null val_v' then [Ass . Assert $ lt (LReal 0) (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] else []
-        stab' = bind stab (n, DAmm)
-        (decls, stab'')   = bindIfNull stab'  getr0 v  t  n depth
-        (decls', stab''') = bindIfNull stab'' getr1 v' t' n depth
-    in Right (amm_name ++ val_v ++ val_v' ++ val_t ++ val_t' ++ distinctness ++ pos_v ++ pos_v' ++ decls ++ decls', stab''')
+        feegt   = if Sym == fee then [Ass . Assert $ gteq (LReal 1) (gfee $ Var (n ++ "_" ++ (show depth)))] else []
+        feelt   = if Sym == fee then [Ass . Assert $ gt (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 0) ] else []
+        stab1 = bind stab (n, DAmm)
+        (decls, stab2)  = bindIfNullr stab1  getr0 v  t  n depth
+        (decls', stab3) = bindIfNullr stab2 getr1 v' t' n depth
+        (fee_dec, stab4) = if Sym == fee then bindIfNullFee stab3 v' n depth else ([], stab3)
+    in Right (amm_name ++ val_v ++ val_v' ++ val_f ++ val_t ++ val_t' ++ distinctness ++ pos_v ++ pos_v' ++ decls ++ decls' ++ feegt ++ feelt ++ fee_dec, stab4)
     where 
-        checkTok stab (Just tok_name) =
+        checkTok stab tok_name =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
-        checkTok stab Nothing = True -- If token isn't declared, it's fine
 
 posBalAssert :: [String] -> [String] -> Int -> String
 posBalAssert ns toks k = 
@@ -237,14 +257,16 @@ showStmts stmts =
                 Dec decl -> show decl
                 Ass ass  -> show ass
 
-baseAxioms :: String
-baseAxioms = unlines $
+baseAxioms :: Bool -> String
+baseAxioms useFees = unlines $
     [ "( declare-datatype TokenAmount ("
     , "    ( amount ( t Token ) (v Real) )"
     , "))"
     , ""
     , "( declare-datatype Amm ("
-    , "    ( amm (r0 TokenAmount) (r1 TokenAmount) )"
+    , if useFees
+      then "    ( amm (r0 TokenAmount) (r1 TokenAmount) (fee Real))"
+      else "    ( amm (r0 TokenAmount) (r1 TokenAmount) )"
     , "))"
     , ""
     , ""
@@ -260,7 +282,9 @@ baseAxioms = unlines $
     , "                    (inAmm Amm))"
     , "                    (Pair Amm (Array String (Array Token Real)))"
     , "("
-    , "    let ((payout (/ (* (v (from swp)) (v (r1 inAmm)))"
+    , if useFees then 
+    "    let ((payout (/ (* (fee inAmm) (v (from swp)) (v (r1 inAmm)))" else
+    "    let ((payout (/ (* (v (from swp)) (v (r1 inAmm)))"
     , "                    (+ (v (from swp)) (v (r0 inAmm))))))"
     , "         (ite (and (<= 0      (v (to swp)))"
     , "                   (<= (v (to swp)) payout))"
@@ -278,6 +302,8 @@ baseAxioms = unlines $
     , "                     (newAmm (amm"
     , "                              (amount (t (from swp)) (+ (v (r0 inAmm)) (v (from swp))))"
     , "                              (amount (t (to swp)  ) (- (v (r1 inAmm)) payout))"
+    , if useFees then 
+      "                              (fee inAmm)" else ""
     , "                              ))"
     , "                     )"
     , "                (pair"
@@ -293,7 +319,9 @@ baseAxioms = unlines $
     , "                    (inAmm Amm))"
     , "                    (Pair Amm (Array String (Array Token Real)))"
     , "("
-    , "    let ((payout (/ (* (v (from swp)) (v (r0 inAmm)))"
+    , if useFees then 
+    "    let ((payout (/ (fee inAmm) (* (v (from swp)) (v (r0 inAmm)))" else
+    "    let ((payout (/ (* (v (from swp)) (v (r0 inAmm)))"
     , "                    (+ (v (from swp)) (v (r1 inAmm))))))"
     , "         (ite (and (<= 0      (v (to swp)))"
     , "                   (<= (v (to swp)) payout))"
@@ -311,6 +339,8 @@ baseAxioms = unlines $
     , "                     (newAmm (amm"
     , "                              (amount (t (to   swp)) (- (v (r0 inAmm)) payout))"
     , "                              (amount (t (from swp)) (+ (v (r1 inAmm)) (v (from swp))))"
+    , if useFees then 
+      "                              (fee inAmm)" else ""
     , "                              ))"
     , "                     )"
     , "                (pair"
