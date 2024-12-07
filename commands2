@@ -1,9 +1,14 @@
-TOKENS (ETH, eur, dkk)
-AMM ETHdkk   (18%1 : ETH, 8%1  : dkk)
-AMM ETHeur   (18%1 : ETH, 8%1  : eur)
-AMM dkkeur   (8%1  : dkk, 18%1 : eur)
-USER aleks (6%1 : ETH, 6%1 : dkk, 6%1 : eur)
+TOKENS (t0, t1, t2)
+
+AMM t0t1 (12%1 : t0, 12%1  : t1)
+AMM t1t2 (12%1 : t1, 12%1  : t2)
+
+USER aleks   (6%1 : t0)
+USER alberto (6%1 : t2)
+
 BEGIN
-EF   aleks.ETH > 6%1 && aleks.dkk > 6%1 && aleks.eur > 6%1
+
+EF   aleks.t2 = 6%1 && alberto.t0 = 6%1
+
 END
 4

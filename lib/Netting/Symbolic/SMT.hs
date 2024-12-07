@@ -159,7 +159,7 @@ posBalAssert ns toks k =
 -- TODO: incorporate last occurrence information, when solving for green/red states
 chain :: [ TxGuess ] -> [(String, [String], SwapDir)] -> Int -> String
 chain guesses amms k = 
-  unlines $ (constrain_txns guesses k []) ++ (chain_assertions guesses amms k [])
+  unlines $ (constrain_txns guesses k []) ++ (chain_assertions guesses amms 0 [])
   where
     constrain_txns guess k acc =
       concat $ map (\i -> 
@@ -167,11 +167,11 @@ chain guesses amms k =
             , "(assert (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!(i-1)) ++ "\"))"
             , "(assert (= (t (from txn" ++ (show i) ++ ")) " ++ (snd3 $ guess!!(i-1)) ++ "))"
             , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
-    chain_assertions guesses amms 0 acc = acc
-    chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k-1) ( acc ++
-          [ "(assert (= users" ++ (show k) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show k) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) ++ "))))"
-          , "(assert (= " ++ (n ++ "_" ++ (show k)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show $ k - 1) ++ " txn" ++ (show k) ++ " " ++ (n ++ "_" ++ (show $ k - 1)) ++ "))))"
-          , concat $ map (\s -> "(assert (= " ++ (s ++ "_" ++ (show k)) ++ " " ++ (s ++ "_" ++ (show (k - 1))) ++ "))") ns ])
+    chain_assertions guesses amms k' acc | k' == k = acc
+    chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k+1) ( acc ++
+          [ "(assert (= users" ++ (show $ k + 1) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n ++ "_" ++ (show k)) ++ "))))"
+          , "(assert (= " ++ (n ++ "_" ++ (show $ k + 1)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n ++ "_" ++ (show k)) ++ "))))"
+          , unlines $ map (\s -> "(assert (= " ++ (s ++ "_" ++ (show $ k + 1)) ++ " " ++ (s ++ "_" ++ (show k)) ++ "))") ns ])
       
 
 collectUsers :: Symtable -> Int -> Either String ([SMTStmt Decl Assert], Symtable)
