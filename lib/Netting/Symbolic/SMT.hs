@@ -157,8 +157,8 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
         distinctness = [Ass . Assert $ distinct (gett . getr0 $ Var (n ++ "_" ++ (show depth))) (gett . getr1 $ Var (n ++ "_" ++ (show depth)))]
         pos_v   = if null val_v  then [Ass . Assert $ lt (LReal 0) (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] else []
         pos_v'  = if null val_v' then [Ass . Assert $ lt (LReal 0) (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] else []
-        feegt   = if Sym == fee then [Ass . Assert $ gteq (LReal 1) (gfee $ Var (n ++ "_" ++ (show depth)))] else []
-        feelt   = if Sym == fee then [Ass . Assert $ gt (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 0) ] else []
+        feegt   = if Sym == fee then [Ass . Assert $ gt (LReal 1) (gfee $ Var (n ++ "_" ++ (show depth)))] else []
+        feelt   = if Sym == fee then [Ass . Assert $ gteq (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 0) ] else []
         stab1 = bind stab (n, DAmm)
         (decls, stab2)  = bindIfNullr stab1  getr0 v  t  n depth
         (decls', stab3) = bindIfNullr stab2 getr1 v' t' n depth
@@ -282,7 +282,7 @@ baseAxioms useFees = unlines $
     , "                    (Pair Amm (Array String (Array Token Real)))"
     , "("
     , if useFees then 
-    "    let ((payout (/ (* (fee inAmm) (v (from swp)) (v (r1 inAmm)))" else
+    "    let ((payout (/ (* (- 1 (fee inAmm)) (v (from swp)) (v (r1 inAmm)))" else
     "    let ((payout (/ (* (v (from swp)) (v (r1 inAmm)))"
     , "                    (+ (v (from swp)) (v (r0 inAmm))))))"
     , "         (ite (and (<= 0      (v (to swp)))"
@@ -319,7 +319,7 @@ baseAxioms useFees = unlines $
     , "                    (Pair Amm (Array String (Array Token Real)))"
     , "("
     , if useFees then 
-    "    let ((payout (/ (fee inAmm) (* (v (from swp)) (v (r0 inAmm)))" else
+    "    let ((payout (/ (* (- 1 (fee inAmm)) (v (from swp)) (v (r0 inAmm)))" else
     "    let ((payout (/ (* (v (from swp)) (v (r0 inAmm)))"
     , "                    (+ (v (from swp)) (v (r1 inAmm))))))"
     , "         (ite (and (<= 0      (v (to swp)))"

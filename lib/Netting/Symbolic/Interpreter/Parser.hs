@@ -235,15 +235,22 @@ instance Read SAMM where
         where 
             isRatio "" = False
             isRatio r  = 
-                if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
+                if all ((==) '_') r then True else
+                if all isNumber r then True else  --parse to Int then Rational
                 case Util.split '%' r of 
                     (num:den:[]) | all isNumber num && all isNumber den -> True
                     _ -> False
             toVal  "_" = Nothing
-            toVal  v   = readMaybe v :: Maybe Rational
+            toVal  v   = 
+              case readMaybe v :: Maybe Int of
+                Just i -> Just $ toRational i
+                Nothing -> readMaybe v :: Maybe Rational
             toValFee  "_" = Sym
             toValFee  v   = 
-              case readMaybe v :: Maybe Rational of
-                Just r -> Conc r
-                Nothing -> None
+              case readMaybe v :: Maybe Int of
+                Just i -> Conc $ toRational i
+                Nothing ->
+                  case readMaybe v :: Maybe Rational of
+                    Just r -> Conc r
+                    Nothing -> None
     readsPrec _ _ = [] -- no parse 
