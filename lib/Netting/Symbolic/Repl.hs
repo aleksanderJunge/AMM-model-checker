@@ -6,6 +6,7 @@ import Netting.Symbolic.Interpreter.Parser
 import Netting.Symbolic.Interpreter.SymTab
 import Netting.Symbolic.Sem
 import Netting.Symbolic.SMT
+import Netting.Symbolic.Utils
 import Data.Maybe
 import Data.List
 import Data.Either
@@ -111,6 +112,20 @@ repl = do
                 --putStrLn $ show (EF exp)
                 constrain (acc ++ [EF exp])
             Left e    -> do {putStrLn e; constrain acc}
+        'E':'U':s   ->
+          let (blank1, rest1) = readUntil '(' s
+              (exp1,   rest2) = readUntil ')' rest1
+              (blank2, rest3) = readUntil '(' rest2
+              (exp2, _)       = readUntil ')' rest3
+          in if any ((==) "!") [blank1, exp1, blank2, exp2] then
+            do {putStrLn "failed reading EU, syntax is: EU (exp1) (exp2)"; constrain acc} else
+            case parse exp1 of
+              Right exp1 ->
+                case parse exp2 of
+                  Right exp2 -> do 
+                    constrain (acc ++ [EU exp1 exp2])
+                  Left e -> do {putStrLn e; constrain acc}
+              Left e    -> do {putStrLn e; constrain acc}
         'E':'N':'D':s -> return acc
         _        -> constrain acc
 

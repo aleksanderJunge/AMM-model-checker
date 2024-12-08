@@ -14,10 +14,7 @@ import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
 
-import Debug.Trace
-
--- We currently only support "EF (Property)"
-data Query = EF Expr | INIT Expr
+data Query = EU Expr Expr | EF Expr | INIT Expr
   deriving (Show) --TODO: remove this
 
 type Symtable = Env String SType
@@ -46,6 +43,8 @@ buildSMTQuery (samms, susers, assertions) stmts useFee stab (tokdec, toks) queri
     ++ posBalAssert (map name susers) toks k
     ++ (chain guess swappingAmms k)
     ++ unlines (map (show . decorateWithDepth stab k) [ exp | EF exp <- queries])
+    ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth stab i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
+    ++ unlines (map (show . decorateWithDepth stab k) [ exp2 | EU exp1 exp2 <- queries])
     ++ unlines ["(check-sat)"]
     ++ unlines (getSymVals stab')
     ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ show <$> [1..k])

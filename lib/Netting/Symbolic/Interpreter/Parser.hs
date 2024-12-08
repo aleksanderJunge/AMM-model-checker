@@ -216,8 +216,8 @@ instance Read SAMM where
           [_] -> 
             let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
             if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
-                                && all (all isAlphaNum) [t0, t1]
-                                && all isRatio [v0, v1]
+                                 && all (all isAlphaNum) [t0, t1]
+                                 && all isRatio [v0, v1]
             then [(SAMM name (toVal v0, t0) (toVal v1, t1) None, rest)]
             else []
           t_and_val : fee : [] -> 

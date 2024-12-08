@@ -3,8 +3,13 @@ AMM t0t1 (100%1 : t0, 100%1  : t1, _ : fee)
 AMM t1t2 (100%1 : t1, 100%1  : t2, 1%2 : fee)
 AMM t2t3 (100%1 : t2, 100%1  : t3, 1%2 : fee)
 AMM t3t4 (100%1 : t3, 100%1  : t4, 1%2 : fee)
+
 USER aleks (100%1 : t0)
+
 BEGIN
+
 EF   aleks.t0 + aleks.t1 + aleks.t2 + aleks.t3 = 0 && t0t1.fee < 1%1 && 10000 > t0t1.r0.v * t0t1.r1.v
+
 END
+
 4
