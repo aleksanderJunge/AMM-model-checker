@@ -126,8 +126,8 @@ bindIfNullr stab get v t n k | null v =
   ([decl, conn], stab')
 bindIfNullr stab _ _ _ _ _ = ([], stab)
 
-bindIfNullFee :: Symtable -> Maybe Rational -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
-bindIfNullFee stab v n k = 
+bindFee :: Symtable -> Maybe Rational -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
+bindFee stab v n k = 
   let stab' = bind stab (n ++ ".fee", Symval)
       decl  = [Dec $ DeclVar (n ++ ".fee") TReal]
       conn  = map (\i -> Ass . Assert $ eq (Var $ n ++ ".fee") (gfee $ Var (n ++ "_" ++ (show i)))) [0..k]
@@ -162,7 +162,7 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
         stab1 = bind stab (n, DAmm)
         (decls, stab2)  = bindIfNullr stab1  getr0 v  t  n depth
         (decls', stab3) = bindIfNullr stab2 getr1 v' t' n depth
-        (fee_dec, stab4) = if Sym == fee then bindIfNullFee stab3 v' n depth else ([], stab3)
+        (fee_dec, stab4) = if Sym == fee then bindFee stab3 v' n depth else ([], stab3)
     in Right (amm_name ++ val_v ++ val_v' ++ val_f ++ val_t ++ val_t' ++ distinctness ++ pos_v ++ pos_v' ++ decls ++ decls' ++ feegt ++ feelt ++ fee_dec, stab4)
     where 
         checkTok stab tok_name =
