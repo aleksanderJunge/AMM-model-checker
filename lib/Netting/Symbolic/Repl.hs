@@ -26,7 +26,6 @@ repl = do
   --putStrLn "Define initial state"
   (stab'', stmts, amms, users) <- init_ stab' [] [] []
   let useFee = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
-      combs  =  getCombinations useFee (amms, users) 4
   let defaultFees = if useFee then setDefaultFees amms 0 [] else []
   case collectUsers stab'' 0 of
     Left e -> putStrLn "you probably defined a variable called users0, it's reserved... start over"
@@ -37,7 +36,8 @@ repl = do
         (constraints) <- constrain []
         ----putStrLn "How deep to check?"
         depth <- getDepth
-        satResult <- check (buildSMTQuery (amms,users,[]) (stmts ++ defaultFees ++ users0) useFee stab''' (tokdecl, toknames) constraints) [1..depth] combs
+        let combs  =  getCombinations useFee (amms, users) depth
+        satResult <- check (buildSMTQuery (amms,users,[]) (stmts ++ defaultFees ++ users0) useFee stab''' (tokdecl, toknames) constraints) [0..depth] combs
         case satResult of
             Nothing -> do {putStrLn "no solution found"; return ()}
             res@(Just (depth, model)) -> do
@@ -145,7 +145,7 @@ repl = do
             -- TODO: optimize to not run sat on this twice!
             Just txs -> pure . Just $ check_sat buildQuery k txs
     check_sat buildQuery k guess = do
-        --putStrLn $ show guess
+        putStrLn $ show guess
         writeFile "/tmp/check_goal.smt2" (case buildQuery guess k of {Left e -> error e; Right r -> r})
         (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
         case take 3 stdout of

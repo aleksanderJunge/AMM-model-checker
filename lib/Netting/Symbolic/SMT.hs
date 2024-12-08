@@ -102,7 +102,7 @@ getCombinations useFee (samms, susers) k =
       names         = map name susers
       combinations  = [(n, t0, t1) | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
                                       (S.member (t0, t1) token_pairs) || (S.member (t1, t0) token_pairs) ]
-      ks            = [1..k]
+      ks            = [0..k]
       guesses       = map (getGuesses combinations) ks
   in  if useFee then guesses else map (filter check_adjacent_txns) guesses
   where
@@ -137,7 +137,7 @@ bindFee stab v n k =
 setDefaultFees :: [SAMM] -> Int -> [SMTStmt Decl Assert] -> [SMTStmt Decl Assert]
 setDefaultFees [] _ acc = acc
 setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) depth acc =
-  setDefaultFees samms depth (acc ++ (if fee == None then [Ass . Assert $ eq (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 1) ] else []))
+  setDefaultFees samms depth (acc ++ (if fee == None then [Ass . Assert $ eq (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 0) ] else []))
 
 -- TODO: enable parsing more numbers and check for subzero
 makeAmm :: SAMM -> Int -> Symtable -> Either String ([SMTStmt Decl Assert], Symtable)
