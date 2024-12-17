@@ -284,7 +284,9 @@ baseAxioms useFees = unlines $
     , if useFees then 
     "    let ((payout (/ (* (- 1 (fee inAmm)) (v (from swp)) (v (r1 inAmm)))" else
     "    let ((payout (/ (* (v (from swp)) (v (r1 inAmm)))"
-    , "                    (+ (v (from swp)) (v (r0 inAmm))))))"
+    , if useFees then
+    "                    (+ (v (from swp)) (* (- 1 (fee inAmm)) (v (r0 inAmm)))))))" else
+    "                    (+ (v (from swp)) (v (r0 inAmm))))))"
     , "         (ite (and (<= 0      (v (to swp)))"
     , "                   (<= (v (to swp)) payout))"
     , "              (let ((oldBal (select users (user swp))))"
@@ -321,7 +323,9 @@ baseAxioms useFees = unlines $
     , if useFees then 
     "    let ((payout (/ (* (- 1 (fee inAmm)) (v (from swp)) (v (r0 inAmm)))" else
     "    let ((payout (/ (* (v (from swp)) (v (r0 inAmm)))"
-    , "                    (+ (v (from swp)) (v (r1 inAmm))))))"
+    , if useFees then
+    "                    (+ (v (from swp)) (* (- 1 (fee inAmm)) (v (r1 inAmm)))))))" else
+    "                    (+ (v (from swp)) (v (r1 inAmm))))))"
     , "         (ite (and (<= 0      (v (to swp)))"
     , "                   (<= (v (to swp)) payout))"
     , "              (let ((oldBal (select users (user swp))))"

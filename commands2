@@ -1,6 +1,6 @@
 TOKENS (t0, t1, t2)
 
-AMM t0t1 (12%1 : t0, 12%1  : t1)
+AMM t0t1 (12%1 : t0, 12%1  : t1, 1%3 : fee)
 AMM t1t2 (12%1 : t1, 12%1  : t2)
 
 USER aleks   (6%1 : t0)
@@ -8,7 +8,7 @@ USER alberto (6%1 : t2)
 
 BEGIN
 
-EF   aleks.t2 = 6%1 && alberto.t0 = 6%1
+EF   aleks.t2 = 4%1 && alberto.t0 = 4%1
 
 END
 4
