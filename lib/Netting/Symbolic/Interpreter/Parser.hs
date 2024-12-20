@@ -128,7 +128,7 @@ parse input =
             (name:field:[]) | all (\c -> isAlphaNum c || c == '_') name &&
                               all (\c -> isAlphaNum c || c == '_') field ->
                                 case readMaybe field :: Maybe UnOp of
-                                  Just Fee -> Just $ gfee (Var name) 
+                                  -- Just Fee -> Just $ gfee (Var name) 
                                   Just _   -> Nothing -- other unary field operations are not permitted. (except indexing for tokens, see below)
                                   Nothing  -> Just $ select (Var name) (Var field) -- TODO: assert later that this is a legal operation (i.e. check for existing token)
             (name:field1:field2:[]) | all (\c -> isAlphaNum c || c == '_') name   &&
@@ -183,7 +183,7 @@ instance Read SToks where
     readsPrec _ _ = []
 
 instance Read UnOp where
-    readsPrec _ ('f':'e':'e':[]) = [(Fee, "")]
+    -- readsPrec _ ('f':'e':'e':[]) = [(Fee, "")]
     readsPrec _ ('n':'o':'t':[]) = [(Not, "")]
     readsPrec _ ('r':'0':[])     = [(R0, "")]
     readsPrec _ ('r':'1':[])     = [(R1, "")]

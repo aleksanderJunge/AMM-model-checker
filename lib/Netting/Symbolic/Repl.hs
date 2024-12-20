@@ -22,28 +22,28 @@ repl :: IO ()
 repl = do
   let symtab = empty :: Env String SType
   --putStrLn "Declare tokens"
-  (tokdecl, stab', toknames) <- toks_ symtab 
+  (stab', toknames) <- toks_ symtab 
   --putStrLn "Define initial state"
   (stab'', stmts, amms, users) <- init_ stab' [] [] []
-  let useFee = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
-  let defaultFees = if useFee then setDefaultFees amms 0 [] else []
-  case collectUsers stab'' 0 of
-    Left e -> putStrLn "you probably defined a variable called users0, it's reserved... start over"
-    Right (users0, stab''') -> do
-        --putStrLn "initial state looks like:"
-        --putStrLn $ showStmts (stmts ++ users0)
-        --putStrLn "Set constraints"
-        (constraints) <- constrain []
-        ----putStrLn "How deep to check?"
-        depth <- getDepth
-        let combs  =  getCombinations useFee (amms, users) depth
-        satResult <- check (buildSMTQuery (amms,users,[]) (stmts ++ defaultFees ++ users0) useFee stab''' (tokdecl, toknames) constraints) [0..depth] combs
-        case satResult of
-            Nothing -> do {putStrLn "no solution found"; return ()}
-            res@(Just (depth, model)) -> do
-                putStrLn $ "Solution found at depth: " ++ (show depth)
-                model' <- model
-                putStrLn model'
+  let useFee      = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
+      defaultFees = if useFee then setDefaultFees amms [] else []
+ -- case collectUsers stab'' 0 of
+ --   Left e -> putStrLn "you probably defined a variable called users0, it's reserved... start over"
+ --   Right (users0, stab''') -> do
+  --putStrLn "initial state looks like:"
+  --putStrLn $ showStmts (stmts ++ users0)
+  --putStrLn "Set constraints"
+  (constraints) <- constrain []
+  ----putStrLn "How deep to check?"
+  depth <- getDepth
+  let combs  =  getCombinations useFee (amms, users) depth
+  satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
+  case satResult of
+      Nothing -> do {putStrLn "no solution found"; return ()}
+      res@(Just (depth, model)) -> do
+          putStrLn $ "Solution found at depth: " ++ (show depth)
+          model' <- model
+          putStrLn model'
                 --repl 
   where
     toks_ stab = do
@@ -54,10 +54,10 @@ repl = do
         Just toks -> do
             case declToks toks stab of
                 Left e -> do {putStrLn e; toks_ stab}
-                Right (r, stab', toklst) -> do 
+                Right (stab', toklst) -> do 
                     --putStrLn r
                     if length (nub toklst) /= length toklst then do {putStrLn "duplicate token..."; toks_ stab}
-                    else return (r, stab', toklst)
+                    else return (stab', toklst)
         Nothing -> do {putStrLn "declare tokens, e.g.: TOKENS: (t0, t1, t2)"; toks_ stab}
 
     getDepth = do

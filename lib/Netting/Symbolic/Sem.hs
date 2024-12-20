@@ -16,18 +16,14 @@ import qualified GHC.Utils.Misc as Util
 
 data DeclType
     = TReal
-    | TToken
     | TString
-    | TAmm
     | TArray DeclType DeclType
     deriving (Eq, Ord)
 
 instance Show DeclType where
     show = \case
         TReal -> "Real"
-        TToken -> "Token"
         TString -> "String"
-        TAmm -> "Amm"
         TArray t1 t2 -> "(Array " ++ show t1 ++ " " ++ show t2 ++ ")"
 
 data Decl
@@ -38,13 +34,12 @@ instance Show Decl where
     show = \case
         DeclVar s t -> "(declare-const " ++ s ++ " " ++ show t ++ ")"
         DeclFun s t1 t2 -> "(declare-fun " ++ s ++ " (" ++ show t1 ++ ") " ++ show t2 ++ ")"
-        --TODO: DeclData s...
 
 data UnOp
     = Not
     | R0 | R1
     | T  | V
-    | Fee
+    -- | Fee
     deriving (Eq, Ord)
 
 instance Show UnOp where
@@ -54,7 +49,7 @@ instance Show UnOp where
         R1  -> "r1"
         T   -> "t"
         V   -> "v"
-        Fee -> "fee"
+        -- Fee -> "fee"
 
 data BinOp
     = Add | Mul | Sub | Div
@@ -90,13 +85,13 @@ instance Show TerOp where
         Store -> "store"
         Ite -> "ite"
         
-lnot, getr0, getr1, gett, getv, gfee :: Expr -> Expr
+lnot, getr0, getr1, gett, getv :: Expr -> Expr
 lnot   = UnOp Not
 getr0  = UnOp R0
 getr1  = UnOp R1
 gett   = UnOp T
 getv   = UnOp V
-gfee   = UnOp Fee
+--gfee   = UnOp Fee
 
 add, mul, sub, div, lt, gt, eq, lor, land, xor, implies, distinct, select :: Expr -> Expr -> Expr
 add   = BinOp Add
@@ -137,16 +132,16 @@ makeExp ss = "(" ++ unwords ss ++ ")"
 
 instance Show Expr where
     show = \case
-        Var s                   -> s
-        LReal r                 -> makeExp [show Div, show $ numerator r, show $ denominator r]
-        LTok t                  -> t
-        LBool b                 -> lower $ show b
-        UnOp  op e1             -> makeExp [show op, show e1]
-        BinOp op e1 e2          -> makeExp [show op, show e1, show e2]
-        TerOp op e1 e2 e3       -> makeExp [show op, show e1, show e2, show e3]
-        ForAll v t b            -> makeExp ["forall", makeExp [makeExp [v, show t]], show b]
-        Exists v t b            -> makeExp ["exists", makeExp [makeExp [v, show t]], show b]
-        Let v t e               -> makeExp ["let", makeExp [makeExp [v, show t]], show e]
+        Var s              -> s
+        LReal r            -> makeExp [show Div, show $ numerator r, show $ denominator r]
+        LTok t             -> t
+        LBool b            -> lower $ show b
+        UnOp  op e1        -> makeExp [show op, show e1]
+        BinOp op e1 e2     -> makeExp [show op, show e1, show e2]
+        TerOp op e1 e2 e3  -> makeExp [show op, show e1, show e2, show e3]
+        ForAll v t b       -> makeExp ["forall", makeExp [makeExp [v, show t]], show b]
+        Exists v t b       -> makeExp ["exists", makeExp [makeExp [v, show t]], show b]
+        Let v t e          -> makeExp ["let", makeExp [makeExp [v, show t]], show e]
 
 -- Parses our text into either a nullary, unary or binary expression
 data ParseHelper a b c = Done a | UnO b | BinO c
@@ -180,7 +175,7 @@ instance Show Assert where
 
 data SMTStmt a b = Dec a | Ass b
 
-data SType = DTok | DAmm | DUser | DUsers | Symval deriving (Eq, Ord, Show)
+data SType = DTok | DAmm | DUser | DUsers | Symval | Concval deriving (Eq, Ord, Show)
 
 data TFee r = Conc r | Sym | None deriving (Show, Eq)
 

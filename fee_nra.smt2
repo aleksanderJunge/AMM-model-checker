@@ -1,5 +1,5 @@
 (set-logic QF_NRA)
-
+(set-option :pp.decimal true)
 
 ( declare-const a_t0_0   Real)
 ( declare-const a_t1_0   Real)
@@ -10,6 +10,10 @@
 ( declare-const r_t1t2_0 Real)
 ( declare-const l_t2t0_0 Real)
 ( declare-const r_t2t0_0 Real)
+
+( declare-const fee_t0t1 Real)
+( declare-const fee_t1t2 Real)
+( declare-const fee_t2t0 Real)
 
 ( declare-const a_t0_1   Real)
 ( declare-const a_t1_1   Real)
@@ -50,6 +54,11 @@
 ( declare-const   to_3   Real)
 ( declare-const payout_3 Real)
 
+; fee assertions
+( assert (= fee_t0t1 0))
+( assert (= fee_t1t2 0))
+( assert (= fee_t2t0 0))
+
 ; user assertions
 (assert ( = a_t0_0 (/ 6 1)))
 (assert ( = a_t1_0 (/ 6 1)))
@@ -64,10 +73,9 @@
 ;(assert (>= a_t1_3 0))
 ;(assert (>= a_t2_3 0))
 
-;(assert (= a_t0_3 8))
-;(assert (= a_t1_3 8))
-;(assert (= a_t2_3 8))
-(assert (= (+ a_t0_3 a_t1_3 a_t2_3) 24))
+(assert (= a_t0_3 8))
+(assert (= a_t1_3 8))
+(assert (= a_t2_3 8))
 
 ;(assert (= (select (select users3 0) t0) 8))
 ;(assert (= (select (select users3 0) t1) 8))
@@ -93,8 +101,8 @@
 (assert (= 
             payout_1
             (/ 
-               (* from_1 l_t1t2_0)
-               (+ from_1 r_t1t2_0))
+               (* from_1 (- 1 fee_t1t2) l_t1t2_0)
+               (+ (* from_1 (- 1 fee_t1t2)) r_t1t2_0))
         )
 )
 (assert (ite 
@@ -116,8 +124,8 @@
 (assert (= 
             payout_2
             (/ 
-               (* from_2 l_t2t0_1)
-               (+ from_2 r_t2t0_1))
+               (* from_2 (- 1 fee_t2t0) l_t2t0_1)
+               (+ (* from_2 (- 1 fee_t2t0)) r_t2t0_1))
         )
 )
 (assert (ite 
@@ -139,8 +147,8 @@
 (assert (= 
             payout_3
             (/ 
-               (* from_3 l_t0t1_2)
-               (+ from_3 r_t0t1_2))
+               (* from_3 (- 1 fee_t0t1) l_t0t1_2)
+               (+ (* from_3 (- 1 fee_t0t1)) r_t0t1_2))
         )
 )
 (assert (ite 

@@ -21,33 +21,34 @@ type Symtable = Env String SType
 
 type TxGuess = (String, String, String)
 
+type TxSeqGuess = [TxGuess]
+
 data SwapDir = LR | RL
 
 instance Show SwapDir where 
   show LR = "lr"
   show RL = "rl"
 
-buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> [SMTStmt Decl Assert] -> Bool -> Symtable -> (String, [String]) -> [Query] -> [TxGuess] -> Int -> Either String String
-buildSMTQuery ([], _, _) _ _ _ _ _ _ _ = Left "No AMMS"
-buildSMTQuery (_, [], _) _ _ _ _ _ _ _ = Left "No Users"
-buildSMTQuery (samms, susers, assertions) stmts useFee stab (tokdec, toks) queries guess k =
+buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> Bool -> Symtable -> [String] -> [Query] -> TxSeqGuess -> Int -> Either String String
+buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
+buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
+buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms []
-        (symdecls, stab') = createSymvals samms stab k
+        stab'        = createSymvals samms stab k
     in Right $
-    unlines [ tokdec ] 
-    ++ baseAxioms useFee
-    ++ buildVars k (map ammName samms)
-    ++ showStmts (stmts ++ symdecls)
-    ++ unlines (map (show . decorateWithDepth stab 0) [ exp | INIT exp <- queries])
-    ++ posBalAssert (map name susers) toks k
-    ++ (chain guess swappingAmms k)
-    ++ unlines (map (show . decorateWithDepth stab k) [ exp | EF exp <- queries])
-    ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth stab i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
-    ++ unlines (map (show . decorateWithDepth stab k) [ exp2 | EU exp1 exp2 <- queries])
+    unlines ["(set-logic QF_NRA)"]
+    ++ unlines (map show (buildVars samms susers toks useFee k))
+    ++ (unlines $ map show assertions)
     ++ unlines ["(check-sat)"]
-    ++ unlines (getSymVals stab')
-    ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ show <$> [1..k])
+    -- ++ showStmts (stmts ++ symdecls)
+    -- ++ unlines (map (show . decorateWithDepth stab 0) [ exp | INIT exp <- queries])
+    -- ++ (chain guess swappingAmms k)
+    -- ++ unlines (map (show . decorateWithDepth stab k) [ exp | EF exp <- queries])
+    -- ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth stab i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
+    -- ++ unlines (map (show . decorateWithDepth stab k) [ exp2 | EU exp1 exp2 <- queries])
+    -- ++ unlines (getSymVals stab')
+    -- ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ show <$> [1..k])
     where
       ammsToUse [] amms acc = acc
       ammsToUse (guess:guesses) amms acc = 
@@ -84,16 +85,7 @@ getSymVals stab =
   let vals = map fst (filter (\(k,v) -> v == Symval) (M.toList stab))
   in map (\s -> "(get-value (" ++ s ++ "))") vals
 
-createSymvals :: [SAMM] -> Symtable -> Int -> ([SMTStmt Decl Assert], Symtable)
-createSymvals samms stab k =
-  let r0pairs = map (\(SAMM n (v, t) (_, _) _) -> bindIfNullr stab getr0 v t n k) samms
-      r1pairs = map (\(SAMM n (_, _) (v', t') _) -> bindIfNullr stab getr1 v' t' n k) samms
-      stab'   = foldl (\acc st -> M.union st acc) stab  (map snd r0pairs)
-      stab''' = foldl (\acc st -> M.union st acc) stab' (map snd r1pairs)
-      decls   = concat $ (map fst r0pairs) ++ (map fst r1pairs)
-  in (decls, stab''')
-
-getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxGuess]]]
+getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[TxSeqGuess]]
 getCombinations useFee (samms, susers) k =
   -- TODO: do more error checking here, such as checking for that length of unqieu elems = original list... etc.
   let token_pairs' = map (\(SAMM _ r0' r1' _) -> (snd r0', snd r1')) samms
@@ -117,63 +109,52 @@ getCombinations useFee (samms, susers) k =
                 | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
                 | otherwise = check_tx tx txs
 
-bindIfNullr :: Symtable -> (Expr -> Expr) -> Maybe Rational -> String -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
-bindIfNullr stab get v t n k | null v = 
-  let stab' = bind stab (n ++ "." ++ t ++ "_" ++ (show k), Symval)
-      decl  = Dec $ DeclVar (n ++ "." ++ t ++ "_" ++ (show k)) TReal
-      conn  = Ass . Assert $ eq (Var $ n ++ "." ++ t ++ "_" ++ (show k)) (getv . get $ Var (n ++ "_" ++ (show k)))
-  in
-  ([decl, conn], stab')
-bindIfNullr stab _ _ _ _ _ = ([], stab)
+-- TODO: refactor this bs function and the one below it
+createSymvals :: [SAMM] -> Symtable -> Int -> Symtable
+createSymvals samms stab k =
+  let r0pairs = map (\(SAMM n (v, t) (_, _) _) -> bindIfNullr stab v t n k) samms
+      r1pairs = map (\(SAMM n (_, _) (v', t') _) -> bindIfNullr stab v' t' n k) samms
+      stab'   = foldl (\acc st -> M.union st acc) stab r0pairs
+  in  foldl (\acc st -> M.union st acc) stab' r1pairs
+bindIfNullr :: Symtable -> Maybe Rational -> String -> String -> Int -> Symtable
+bindIfNullr stab v t n k | null v = 
+  bind stab (n ++ "_" ++ t ++ "_" ++ (show k), Symval)
+bindIfNullr stab _ _ _ _ = stab
 
-bindFee :: Symtable -> Maybe Rational -> String -> Int -> ([SMTStmt Decl Assert], Symtable)
-bindFee stab v n k = 
-  let stab' = bind stab (n ++ ".fee", Symval)
-      decl  = [Dec $ DeclVar (n ++ ".fee") TReal]
-      conn  = map (\i -> Ass . Assert $ eq (Var $ n ++ ".fee") (gfee $ Var (n ++ "_" ++ (show i)))) [0..k]
-  in
-  (decl ++ conn, stab')
- 
-setDefaultFees :: [SAMM] -> Int -> [SMTStmt Decl Assert] -> [SMTStmt Decl Assert]
-setDefaultFees [] _ acc = acc
-setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) depth acc =
-  setDefaultFees samms depth (acc ++ (if fee == None then [Ass . Assert $ eq (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 0) ] else []))
+setDefaultFees :: [SAMM] -> [Assert] -> [Assert]
+setDefaultFees [] acc = acc
+setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) acc =
+  setDefaultFees samms (acc ++ (if fee == None then [Assert $ eq (Var $ "fee_" ++ n) (LReal 0) ] else []))
+
+-- Takes as input a SAMM, and a list of expressions to apply to it at various depths
+-- or maybe no SAMM, but just the rest?
+makeAmm' :: SAMM -> ([((String -> Expr), [Int])]) -> [Assert]
+makeAmm' = undefined
 
 -- TODO: enable parsing more numbers and check for subzero
-makeAmm :: SAMM -> Int -> Symtable -> Either String ([SMTStmt Decl Assert], Symtable)
+makeAmm :: SAMM -> Int -> Symtable -> Either String ([Assert], Symtable)
 makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
     else if not (checkTok stab t)  then Left $ "Token: " ++ t  ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else if not (checkTok stab t') then Left $ "Token: " ++ t' ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else 
-    let amm_name = singleton . Dec $ DeclVar (n ++ "_" ++ (show depth)) TAmm
-        val_v    = fromMaybe [] ( v  >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] ))
-        val_v'   = fromMaybe [] ( v' >>= (\v -> Just [Ass . Assert $ eq (LReal v)  (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] ))
-        val_f    = case fee of 
-          Conc r -> [Ass . Assert $ eq (LReal r)  (gfee $ Var (n ++ "_" ++ (show depth)))] 
-          _      -> []
-        val_t    = [Ass . Assert $ eq (LTok t)  (gett . getr0 $ Var (n ++ "_" ++ (show depth)))]
-        val_t'   = [Ass . Assert $ eq (LTok t') (gett . getr1 $ Var (n ++ "_" ++ (show depth)))]
-        distinctness = [Ass . Assert $ distinct (gett . getr0 $ Var (n ++ "_" ++ (show depth))) (gett . getr1 $ Var (n ++ "_" ++ (show depth)))]
-        pos_v   = if null val_v  then [Ass . Assert $ lt (LReal 0) (getv . getr0 $ Var (n ++ "_" ++ (show depth)))] else []
-        pos_v'  = if null val_v' then [Ass . Assert $ lt (LReal 0) (getv . getr1 $ Var (n ++ "_" ++ (show depth)))] else []
-        feegt   = if Sym == fee then [Ass . Assert $ gt (LReal 1) (gfee $ Var (n ++ "_" ++ (show depth)))] else []
-        feelt   = if Sym == fee then [Ass . Assert $ gteq (gfee $ Var (n ++ "_" ++ (show depth))) (LReal 0) ] else []
+    let assrt_v    = fromMaybe [lt (LReal 0) (Var $ "l_" ++ n ++ "_" ++ (show depth))]
+                  ( v  >>= (\v -> Just [eq (LReal v)  (Var $ "l_" ++ n ++ "_" ++ (show depth))] ))
+        assrt_v'   = fromMaybe [lt (LReal 0) (Var $ "r_" ++ n ++ "_" ++ (show depth))] 
+                  ( v' >>= (\v -> Just [eq (LReal v)  (Var $ "r_" ++ n ++ "_" ++ (show depth))] ))
+        assrt_f    = case fee of 
+          Conc r -> [eq (LReal r) (Var $ "fee_" ++ n)]
+          Sym    -> (gt (LReal 1) (Var $ "fee_" ++ n)) : [gteq (Var $ "fee_" ++ n) (LReal 0) ] -- default constraints for symbolic values for the fee
+          None   -> []
         stab1 = bind stab (n, DAmm)
-        (decls, stab2)  = bindIfNullr stab1  getr0 v  t  n depth
-        (decls', stab3) = bindIfNullr stab2 getr1 v' t' n depth
-        (fee_dec, stab4) = if Sym == fee then bindFee stab3 v' n depth else ([], stab3)
-    in Right (amm_name ++ val_v ++ val_v' ++ val_f ++ val_t ++ val_t' ++ distinctness ++ pos_v ++ pos_v' ++ decls ++ decls' ++ feegt ++ feelt ++ fee_dec, stab4)
+        stab2 = bind stab1 ("l_" ++ n ++ "_" ++ (show depth), if null v then Symval else Concval)
+        stab3 = bind stab2 ("r_" ++ n ++ "_" ++ (show depth), if null v' then Symval else Concval)
+        stab4 = if fee /= None then bind stab3 ("fee_" ++ n, if fee == Sym then Symval else Concval) else stab3
+    in Right $ (map Assert (assrt_v ++ assrt_v' ++ assrt_f), stab4)
     where 
         checkTok stab tok_name =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
-
-posBalAssert :: [String] -> [String] -> Int -> String
-posBalAssert ns toks k = 
-  unlines . concat $ map (go ([(n, tok) | n <- ns, tok <- toks])) [0..k]
-  where
-    go nstoks k = map (\(n, tok) -> "(assert (>= (select (select users" ++ (show k) ++ " \"" ++ n ++ "\") " ++ tok ++ ") 0))") nstoks
 
 -- TODO: incorporate last occurrence information, when solving for green/red states
 chain :: [ TxGuess ] -> [(String, [String], SwapDir)] -> Int -> String
@@ -193,476 +174,62 @@ chain guesses amms k =
           , unlines $ map (\s -> "(assert (= " ++ (s ++ "_" ++ (show $ k + 1)) ++ " " ++ (s ++ "_" ++ (show k)) ++ "))") ns ])
       
 
-collectUsers :: Symtable -> Int -> Either String ([SMTStmt Decl Assert], Symtable)
-collectUsers stab i = 
-    let cname      = "users" ++ (show i) in
-    if isJust (get stab cname ) then Left $ " user collection already defined for depth: " ++ (show i) else
-    let users      = map fst (filter (\(k,v) -> v == DUser) (M.toList stab))
-        usersState = [Ass . Assert $  eq (Var cname) (foldl (\acc u -> store acc (Var ("\"" ++ u ++ "\"")) (Var u)) (Var "baseUsers") users)]
-        --assertions = concat $ map (\u -> [Ass . Assert $ eq (Var u) (select (Var cname) ()) ]) users
-        stab'      = bind stab (cname, DUsers)
-    in Right (usersState, stab')
+-- TODO: make a replacement for this that basically just ensures that users with unconstrained balances are printed
+--collectUsers :: Symtable -> Int -> Either String ([SMTStmt Decl Assert], Symtable)
+--collectUsers stab i = 
+--    let cname      = "users" ++ (show i) in
+--    if isJust (get stab cname ) then Left $ " user collection already defined for depth: " ++ (show i) else
+--    let users      = map fst (filter (\(k,v) -> v == DUser) (M.toList stab))
+--        usersState = [Ass . Assert $  eq (Var cname) (foldl (\acc u -> store acc (Var ("\"" ++ u ++ "\"")) (Var u)) (Var "baseUsers") users)]
+--        --assertions = concat $ map (\u -> [Ass . Assert $ eq (Var u) (select (Var cname) ()) ]) users
+--        stab'      = bind stab (cname, DUsers)
+--    in Right (usersState, stab')
 
--- Returns the necessary variables needed for executing i steps
-buildVars :: Int -> [String] -> String
-buildVars k amms =
-      unlines $ build_vars k amms []
-      where 
-          build_vars 0 amms s = unlines
-            [ "( declare-const users" ++ (show 0) ++ " (Array String (Array Token Real)))"] : s
-          build_vars i amms s = build_vars (i - 1) amms (unlines 
-            [ "( declare-const txn"   ++ (show i) ++ " Txn)"
-            , "( declare-const users" ++ (show i) ++ " (Array String (Array Token Real)))"
-            , unlines (map (\s ->"( declare-const " ++ s ++ "_" ++ (show i) ++ " Amm)") amms)] : s)
+buildVars :: [SAMM] -> [SUser] -> [String] -> Bool -> Int -> [Decl]
+buildVars amms users toks useFee k =
+  let userCombs   = [(n, t, i) | n <- (map name users), t <- toks, i <- [0..k]]
+      ammCombs    = [(p, n, i) | p <- ["l", "r"], n <- (map ammName amms), i <- [0..k]]
+      feeCombs    = if useFee then map ammName amms else []
+      txnCombs    = [(f, i) | f <- ["payout", "from", "to"], i <- [1..k]]
+      userDecls = map declUser userCombs
+      ammDecls  = map declAmm ammCombs
+      txnDecls  = map declTxn txnCombs
+      feeDecls  = map declFee feeCombs
+  in userDecls ++ ammDecls ++ txnDecls ++ feeDecls
+  where
+    declUser (n, tok, i)   = DeclVar (n ++ "_" ++ tok ++ "_" ++ (show i)) TReal
+    declAmm (prefix, n, i) = DeclVar (prefix ++ "_" ++ n ++ "_" ++ (show i)) TReal
+    declFee n              = DeclVar ("fee_" ++ n) TReal
+    declTxn (field, i)     = DeclVar (field ++ "_" ++ (show i)) TReal
+
 
 -- TODO: opt point, maybe completely concretize wallet by storing rather than selecting tokens from it 
-makeUser :: SUser -> Symtable -> Either String ([SMTStmt Decl Assert], Symtable)
+makeUser :: SUser -> Symtable -> Either String ([Assert], Symtable)
 makeUser (SUser wal n) stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
     else if any (\t -> not $ checkTok stab t) (map fst wal)  then Left $ " one or more tokens not found in: " ++ show stab
     else if length (map fst wal) /= length (nub $ map fst wal) then Left " some tokens are declared twice"
     else 
-    let user_name = singleton . Dec $ DeclVar n (TArray TToken TReal) -- nest this inside a TArray TUser
-        wal_dom   = nub $ map fst wal
+    let wal_dom   = nub $ map fst wal
         stab_dom  = nub $ map fst (filter (\(k,v) -> v == DTok) (M.toList stab))
         undef     = stab_dom \\ wal_dom -- these will be set to 0
+
+        -- TODO: consider adding symbolic values to symtable to signify that we want to print the values given to those
         conc_wal  = Util.mapSnd fromJust (filter (\(k,v) -> isJust v) wal)
         symb_wal  = filter (\(k,v) -> isNothing v) wal
-        conc_ass  = concat $ map (\(t,v) -> [Ass . Assert $ eq (select (Var n) (LTok t)) (LReal v)]) conc_wal
-        symb_ass  = concat $ map (\(t,_) -> [Dec $ DeclVar (n ++ "_" ++ t) TReal, Ass . Assert $ eq (select (Var n) (LTok t)) (Var $ n ++ "_" ++ t)]) symb_wal
-        undef_ass = concat $ map (\t     -> [Ass . Assert $ eq (select (Var n) (LTok t)) (LReal 0)]) undef
+        conc_ass  = concat $ map (\(t,v) -> [eq (Var $ n ++ "_" ++ t ++ "_0") (LReal v)]) conc_wal
+        symb_ass  = concat $ map (\(t,_) -> [gteq (Var $ n ++ "_" ++ t ++ "_0") (LReal 0)]) symb_wal
+        undef_ass = concat $ map (\t     -> [eq (Var $ n ++ "_" ++ t ++ "_0") (LReal 0)]) undef
         stab' = bind stab (n, DUser)
-    in Right (user_name ++ conc_ass ++ symb_ass ++ undef_ass, stab')
+    in Right (map Assert (conc_ass ++ undef_ass ++ symb_ass), stab')
     where 
         checkTok stab tok_name =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
 
 -- given a list of names, declares these to be the set of tokens
-declToks :: SToks -> Symtable -> Either String (String, Symtable, [String]) -- third element is the list of tokens declared (to be used in haskell for further processing)
+declToks :: SToks -> Symtable -> Either String (Symtable, [String]) -- third element is the list of tokens declared (to be used in haskell for further processing)
 declToks (SToks toks) stab =
     if elem DTok (codomain stab) then Left "Tokens have already been declared!" else
         let stab' = foldl (\st tok -> bind st (tok, DTok)) stab toks
-            decl  = "(declare-datatype Token ("++ (concat $ intersperse " " $ map (\x -> '(':x ++ ")") toks) ++ "))"
-        in Right (decl, stab', toks)
-        
-showStmts :: [SMTStmt Decl Assert] -> String
-showStmts stmts = 
-    let (decs, asses) = partition (\case {Dec _ -> True; Ass _ -> False}) stmts in
-    unlines $ map showStmt (decs ++ asses)
-    where 
-        showStmt =
-            \case
-                Dec decl -> show decl
-                Ass ass  -> show ass
-
-baseAxioms :: Bool -> String
-baseAxioms useFees = unlines $
-    [ "( declare-datatype TokenAmount ("
-    , "    ( amount ( t Token ) (v Real) )"
-    , "))"
-    , ""
-    , "( declare-datatype Amm ("
-    , if useFees
-      then "    ( amm (r0 TokenAmount) (r1 TokenAmount) (fee Real))"
-      else "    ( amm (r0 TokenAmount) (r1 TokenAmount) )"
-    , "))"
-    , ""
-    , ""
-    , "( declare-datatype Txn "
-    , "    (( tx ( user String ) ( from TokenAmount ) ( to TokenAmount))"
-    , "))"
-    , ""
-    , "(declare-datatypes ( (Pair 2) ) ("
-    , "(par (X Y) ( (pair (fst X) (snd Y)) ))))"
-    , ""
-    , "( define-fun swaplr ((users (Array String (Array Token Real)))"
-    , "                    (swp   Txn)"
-    , "                    (inAmm Amm))"
-    , "                    (Pair Amm (Array String (Array Token Real)))"
-    , "("
-    , if useFees then 
-    "    let ((payout (/ (* (- 1 (fee inAmm)) (v (from swp)) (v (r1 inAmm)))" else
-    "    let ((payout (/ (* (v (from swp)) (v (r1 inAmm)))"
-    , if useFees then
-    "                    (+ (v (from swp)) (* (- 1 (fee inAmm)) (v (r0 inAmm)))))))" else
-    "                    (+ (v (from swp)) (v (r0 inAmm))))))"
-    , "         (ite (and (<= 0      (v (to swp)))"
-    , "                   (<= (v (to swp)) payout))"
-    , "              (let ((oldBal (select users (user swp))))"
-    , "                ("
-    , "                let ((newBal"
-    , "                        (store"
-    , "                            (store oldBal"
-    , "                                   (t (to swp))"
-    , "                                   (+ (select oldBal (t (to swp))) payout)"
-    , "                            )"
-    , "                            (t (from swp)) "
-    , "                            (- (select oldBal (t (from swp)))"
-    , "                               (v (from swp)))))"
-    , "                     (newAmm (amm"
-    , "                              (amount (t (from swp)) (+ (v (r0 inAmm)) (v (from swp))))"
-    , "                              (amount (t (to swp)  ) (- (v (r1 inAmm)) payout))"
-    , if useFees then 
-      "                              (fee inAmm)" else ""
-    , "                              ))"
-    , "                     )"
-    , "                (pair"
-    , "                    newAmm"
-    , "                    (store users (user swp) newBal)"
-    , "                    )))"
-    , "              (pair inAmm users)"
-    , "        )"
-    , "))"
-    ,""
-    , "( define-fun swaprl ((users (Array String (Array Token Real)))"
-    , "                    (swp   Txn)"
-    , "                    (inAmm Amm))"
-    , "                    (Pair Amm (Array String (Array Token Real)))"
-    , "("
-    , if useFees then 
-    "    let ((payout (/ (* (- 1 (fee inAmm)) (v (from swp)) (v (r0 inAmm)))" else
-    "    let ((payout (/ (* (v (from swp)) (v (r0 inAmm)))"
-    , if useFees then
-    "                    (+ (v (from swp)) (* (- 1 (fee inAmm)) (v (r1 inAmm)))))))" else
-    "                    (+ (v (from swp)) (v (r1 inAmm))))))"
-    , "         (ite (and (<= 0      (v (to swp)))"
-    , "                   (<= (v (to swp)) payout))"
-    , "              (let ((oldBal (select users (user swp))))"
-    , "                ("
-    , "                let ((newBal"
-    , "                        (store"
-    , "                            (store oldBal"
-    , "                                   (t (to swp))"
-    , "                                   (+ (select oldBal (t (to swp))) payout)"
-    , "                            )"
-    , "                            (t (from swp)) "
-    , "                            (- (select oldBal (t (from swp)))"
-    , "                               (v (from swp)))))"
-    , "                     (newAmm (amm"
-    , "                              (amount (t (to   swp)) (- (v (r0 inAmm)) payout))"
-    , "                              (amount (t (from swp)) (+ (v (r1 inAmm)) (v (from swp))))"
-    , if useFees then 
-      "                              (fee inAmm)" else ""
-    , "                              ))"
-    , "                     )"
-    , "                (pair"
-    , "                    newAmm"
-    , "                    (store users (user swp) newBal)"
-    , "                    )))"
-    , "              (pair inAmm users)"
-    , "        )"
-    , "))"
-    , ""
-    , "(define-fun baseUsers () (Array String (Array Token Real))"
-    , "((as const (Array String (Array Token Real)))"
-    , "         ((as const (Array Token Real)) 0.0)))"
-    , ""
-    -- , "(define-fun baseWal () (Array Token Real)" --TODO: remove if not needed
-    -- , "((as const (Array Token Real)) 0.0))"
-    ]
-
---
----- A transaction guess, we attempt to guess a shape on the transaction and backtrack if we guess wrong
---type TxGuess = (String, AtomicToken, AtomicToken)
---
---checkGoal :: Configuration -> Int -> [Goal] -> IO (Maybe (Int, IO String)) -- TODO: return transactions
---checkGoal conf@(Configuration g s q) k goals = do
---    let tokens        = [T0, T1, T2] -- TODO: make this collect tokens from the configuration instead
---        token_pairs   = S.fromList $ map (\(AMM (t, _) (t', _)) -> (t,t')) (fst g)
---        names         = map name (snd g)
---        combinations  = [(n, t0, t1) | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
---                                       (S.member (t0, t1) token_pairs) || (S.member (t1, t0) token_pairs) ]
---        ks            = [1..k]
---        guesses       = map (getGuesses combinations) ks
---        guesses'      = map (filter check_adjacent_txns) guesses
---        to_print      = zip3 ks guesses guesses'
---    
---    forM to_print (\(i, g, g') -> print $ "guesses to check at depth: " ++ (show i) ++ ": " ++ 
---                                           (show $ length g') ++ " (reduced from: " ++ (show $ length g) ++ ")")
---
---
---    --satResult <- check' goals conf ks guesses'
---    --case satResult of
---    --    Nothing -> pure satResult
---    --    res@(Just (depth, model)) -> do
---    --        print $ "Solution found at depth: " ++ (show depth)
---    --        putStrLn model
---    --        pure res
---    satResult <- check goals conf ks guesses'
---    case satResult of
---        Nothing -> pure satResult
---        res@(Just (depth, model)) -> do
---            print $ "Solution found at depth: " ++ (show depth)
---            model' <- model
---            putStrLn model'
---            pure res
---
---    where 
---        check goal conf [] guesses = pure Nothing
---        check goal conf ks []      = pure Nothing 
---        check goal conf (k:ks) (guess:guesses) = do
---            res <- check_at_depth goal conf k guess
---            case res of 
---                Nothing  -> check goal conf ks guesses
---                Just txs -> pure $ Just (k, liftM snd txs)
---        check' goal conf [] guesses = pure Nothing
---        check' goal conf ks []      = pure Nothing 
---        check' goal conf (k:ks) (guess:guesses) = do
---            res <- check_at_depth' goal conf k guess
---            case res of
---                Nothing -> do 
---                    print $ "No solution found at depth: " ++ (show k)
---                    check' goal conf ks guesses
---                Just out -> pure $ Just (k, out)
---        check_at_depth' goal conf k guesses = do 
---            let queries = map (buildSMTQuery conf k False goal) guesses 
---                threads = zip [0..9] (take 10 queries)-- TODO: take an input number of threads to spawn & check whether 6 <= |queries|
---            initJobs <- mapM (\(tid, query) -> createJob tid query) threads
---            managePool initJobs queries
---        --check_at_depth'' goal conf k guesses = do
---        --    let queries          = map (buildSMTQuery conf k False goal) guesses 
---        --        num_threads      = 6
---        --        (init, queries') = splitAt num_threads queries
---        --    workers <- createWorkers num_threads
---        --    initWorkers workers init
---        --    runOnPool workers queries'
---        check_at_depth goal conf k guesses = do
---            txRes <- findM (\x -> liftM (not . fst) $ check_sat goal conf k x) guesses
---            case txRes of 
---                Nothing -> do 
---                    print $ "No solution found at depth: " ++ (show k)
---                    pure Nothing
---                -- TODO: optimize to not run sat on this twice!
---                Just txs -> pure . Just $ check_sat goal conf k txs
---        check_sat goal conf k guess = do
---            putStrLn $ show guess
---            writeFile "/tmp/check_goal.smt2" (buildSMTQuery conf k True goal guess)
---            (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
---            case take 3 stdout of
---                "sat"     -> pure (False, stdout)
---                otherwise -> pure (True, stderr)
---        getGuesses combs k = sequence $ replicate k combs
---        check_adjacent_txns [] = True
---        check_adjacent_txns (tx:[]) = True
---        check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
---            where 
---                check_tx tx []          = True
---                check_tx tx@(n, t, t') ((n', t'', t'''):txs)
---                    | n == n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = False
---                    | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
---                    | otherwise = check_tx tx txs
---
---
---
----- build query to check if goal is reachable within exactly k steps
---buildSMTQuery :: Configuration -> Int -> Bool -> [Goal] -> [TxGuess] -> String
---buildSMTQuery (Configuration g s q) k getTxns goals guess =
---    baseAxioms
---    ++ buildVars k
---    ++ constrainState s 0 -- (assuming s = g)
---    ++ constrainTxns guess k
---    ++ (unlines $ map buildChainAssertions [k])
---    ++ (unlines $ map (\(U (n, amts)) -> userGoal amts k n) goals)
---    ++ unlines ["(check-sat)"]
---    ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ map show [0..k-1])
---    -- ++ "~" -- This is the EOF symbol for our worker threads to stop reading
---
----- a desired basket of tokens
---userGoal :: [TokenAmt] -> Int -> String -> String
---userGoal ts k n = unlines $
---    map (\(t,v) -> 
---        "(assert (>= (select (select (users state" ++ (show k) 
---        ++ ") \"" ++ n ++ "\") " ++ (show t) ++ ") " ++ (showR v) ++ "))") ts
---
---showR :: Rational -> String
---showR r = "(/ " ++ (show $ numerator r) ++ " " ++ (show $ denominator r) ++ ")"
---
---store :: String -> String -> String -> String
---store a i e =
---      "(store " ++ a ++ " " ++ i ++ " " ++ e ++ ")"
---
---constrainState :: State -> Int -> String
---constrainState (amms, users) i =
---      let uassert = constrainUsers users i
---          aassert = constrainAmms  amms  i
---      in unlines $ [uassert, aassert]
---
---showAMM :: AMM -> String
---showAMM (AMM r0 r1) = 
---    "(just (amm " ++ (showT r0) ++ " " ++ (showT r1) ++ "))"
---    where 
---      showT (t, v) = "(amount " ++ (show t) ++ " " ++ (showR v) ++ ")"
---
----- given list of AMMs initializes them in SMTLIB2 format.
---constrainAmms :: [ AMM ] -> Int -> String
---constrainAmms amms i =
---    let topToks  = S.toList . S.fromList $ concatMap (\(AMM (t, _) (t', _)) -> [ t, t' ]) amms
---        botDecls = map (bot_decl amms) topToks
---        topDec   = top_decl botDecls topToks
---    in
---    unlines $ ["(assert (= (amms state" ++ (show i) ++ ") "] ++ [topDec] ++ ["))"]
---    where 
---        bot_decl amms topTok = 
---            let amms'     = filter (\(AMM (t, _) (t', _)) ->  elem topTok [t, t']) amms
---                botToks   = map    (\(AMM (t, _) (t', _)) -> (!! 0) $ filter (/= topTok) [t, t']) amms'
---                storeAMM  = (\dec (amm, t) -> store dec (show t) (showAMM amm))
---            in foldl storeAMM "lempt" (zip amms' botToks)
---        top_decl botDecls topToks =
---            let storeDecls = (\a (botDec, t) -> store a (show t) botDec)
---            in foldl storeDecls "hempt" (zip botDecls topToks)
---
---
---constrainUsers :: [ User ] -> Int -> String
---constrainUsers users i = 
---    -- TODO: once minted tokens are supported, remove toAtom check
---    let users'   = map (\(User wal n) -> (n, catMaybes $ map toAtom $ M.toList wal)) users
---        tsAndvs  = map unzip $ map snd users'
---        userWals = map (\(ts, vs) -> fillWal ts vs) tsAndvs
---        smtUsers = populateUsers (map fst users') userWals
---    in
---    unlines $ ["(assert (= (users state" ++ (show i) ++ ") "] ++ [smtUsers]++ ["))"]
---    where 
---        fillWal ts vs =
---            let storeDecls = (\a (t, v) -> store a (show t) (showR v))
---            in foldl storeDecls "baseWal" (zip ts vs)
---        populateUsers ns wals =
---            let storeDecls = (\a (n, wal) -> store a ("\"" ++ n ++ "\"") wal)
---            in foldl storeDecls "baseUsers" (zip ns wals)
---        toAtom =
---            \case 
---              (AtomTok a, v) -> Just (a, v)
---              (MintTok _, _) -> Nothing
---
----- given a list of transaction guesses, constrains txns to match these
---constrainTxns :: [ TxGuess ] -> Int -> String
---constrainTxns guess k =
---    let ks = [0..k-1]  -- TODO: add constraint that user's last transaciton must result in a positive balanc
---        nameSet = map head . group . sort $ map fst3 guess
---        lastOccurrence = M.fromList $ map (\(n,i) -> (n, (length guess) - i - 1 )) $ map (findFstOcc 0 (reverse guess)) nameSet 
---        in
---        unlines $ (makeGuess lastOccurrence guess ks) ++ (assertAmount ks)
---    where 
---        findFstOcc i [] n = (n, i-1) -- TODO: figure out some decent val here
---        findFstOcc i (tx:txns) n = if n == (fst3 tx) then (n, i) else findFstOcc (i + 1) txns n
---        makeGuess lastOcc guess ks = 
---            map (\i -> unlines $
---            [ "(assert (and"
---            , if i == fromMaybe (-1) (M.lookup (fst3 $ guess !! i) lastOcc) 
---                then "(forall ((tau Token)) (>= (getBal state" ++ (show $ i + 1) 
---                     ++ " \"" ++ (fst3 $ guess !! i) ++ "\" tau) 0))"
---              else ""
---            , unlines $ ["  (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!i) ++ "\")"]
---            , unlines $ ["  (= (t (from txn" ++ (show i) ++ ")) " ++ (show . snd3 $ guess!!i) ++ ")"]
---            , unlines $ ["  (= (t (to   txn" ++ (show i) ++ ")) " ++ (show . thd3 $ guess!!i) ++ ")"]
---            , "))"]) ks
---        assertAmount ks = map (\i -> "(assert (> (v (from txn" ++ (show i) ++ ")) 0 ))") ks
---            
----- Returns the necessary variables needed for executing i steps
---buildVars :: Int -> String
---buildVars i =
---      unlines $ build_vars i []
---      where 
---          build_vars 0 s = unlines
---            [ "( declare-const state" ++ (show 0) ++ " State)"] : s
---          build_vars i s = build_vars (i - 1) (unlines 
---            [ "( declare-const txn"   ++ (show $ i - 1) ++ " Txn)"
---            , "( declare-const state" ++ (show i) ++ " State)"] : s)
---
---buildChainAssertions :: Int -> String
---buildChainAssertions i =
---      unlines $ build_assertions i []
---      where 
---          build_assertions 0 s = s
---          build_assertions i s = build_assertions (i - 1) 
---            (unlines 
---                [ "(assert (= state" ++ (show i) ++ " (swap state" ++ (show $ i - 1) ++ " txn" ++ (show $ i - 1) ++ ")))"] : s)
---
---
---baseAxioms :: String
---baseAxioms = unlines $
---  [ "( declare-datatype Token ( ( t0 ) ( t1 ) ( t2 ) ))"
---  , ""
---  , "( declare-datatype TokenAmount ("
---  , "    ( amount ( t Token ) (v Real) )"
---  , "))"
---  , ""
---  , "( declare-datatype Amm ("
---  , "    ( amm (r0 TokenAmount) (r1 TokenAmount) )"
---  , "))"
---  , ""
---  , "( declare-datatypes (( Maybe 1 )) ("
---  , "( par ( X ) ( ( nothing ) ( just ( val X ))))))"
---  , ""
---  , "( declare-datatype State ("
---  , "    (pair (amms  (Array Token (Array Token (Maybe Amm))))"
---  , "          (users (Array String (Array Token Real)))"
---  , "    )"
---  , "))"
---  , ""
---  , "( declare-datatype Txn (( tx ( user String ) ( from TokenAmount ) ( to TokenAmount))))"
---  , ""
---  , "( define-fun swap ((state State)"
---  , "                   (swp   Txn))"
---  , "                   State"
---  , "("
---  , "     ite (> 0 (v (from swp))) state"
---  , "    (let ((foundAmm (select (select (amms state) (t (from swp))) (t (to swp)))))"
---  , "        ( match foundAmm ((nothing state) ((just foundAmmX)"
---  , "        (let ((swappingAmm ("
---  , "            ite (= (t (r0 foundAmmX)) (t (from swp)))"
---  , "                   foundAmmX"
---  , "                   (amm (r1 foundAmmX) (r0 foundAmmX)))))"
---  --, "        ; Calculate payout"
---  , "        (let ((payout (/ (* (v (from swp)) (v (r1 swappingAmm)))"
---  , "                         (+ (v (from swp)) (v (r0 swappingAmm))))))"
---  --, "              ; If swap withing x-rate, then execute, otherwise leave state unchanged"
---  , "             (ite (and (<= 0      (v (to swp)))"
---  , "                       (<= (v (to swp)) payout))"
---  , "                  (let ((oldBal (select (users state) (user swp))))"
---  , "                    ("
---  , "                    let ((newBal"
---  , "                            (store"
---  , "                                (store oldBal"
---  , "                                       (t (to swp))"
---  , "                                       (+ (select oldBal (t (to swp))) payout)"
---  , "                                )"
---  , "                                (t (from swp)) "
---  , "                                (- (select oldBal (t (from swp)))"
---  , "                                   (v (from swp)))))"
---  , "                         (newAmm (amm"
---  , "                                  (amount (t (from swp)) (+ (v (r0 swappingAmm)) (v (from swp))))"
---  , "                                  (amount (t (to swp)  ) (- (v (r1 swappingAmm)) payout))"
---  , "                                  ))"
---  , "                         )"
---  --, "                    ; return new state"
---  , "                    (pair"
---  , "                        (let ((oldTFromAmms (select (amms state) (t (from swp))))"
---  , "                              (oldTToAmms   (select (amms state) (t (to swp)  ))))"
---  --, "                              ; update lookup corresponding to selecting t0 -> t1"
---  , "                             (let ((tmpamms (store (amms state ) (t (from swp))"
---  , "                                (store oldTFromAmms (t (to swp)) (just newAmm)))))"
---  , "                              (store tmpamms (t (to swp)) (store oldTToAmms (t (from swp)) (just newAmm)))))"
---  , "                        (store (users state) (user swp) newBal)"
---  , "                        )))"
---  , "                  state"
---  , "            )"
---  , "    )"
---  , ")))))))"
---  , "( define-fun getBal ((state State)"
---  , "                     (name String)"
---  , "                     (tau  Token)) "
---  , "                      Real "
---  , "("
---  , "    select (select (users state) name) tau"
---  , "))"
---  , "(define-fun lempt () (Array Token (Maybe Amm))"
---  , "((as const (Array Token (Maybe Amm))) nothing))"
---  , "(define-fun hempt () (Array Token (Array Token (Maybe Amm)))"
---  , "((as const (Array Token (Array Token (Maybe Amm)))) lempt))" 
---  , "(define-fun baseUsers () (Array String (Array Token Real))"
---  , "((as const (Array String (Array Token Real)))"
---  , "         ((as const (Array Token Real)) 0.0)))"
---  , "(define-fun baseWal () (Array Token Real)"
---  , "((as const (Array Token Real)) 0.0))"
---  ]
+        in Right (stab', toks)
