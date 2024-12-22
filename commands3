@@ -8,7 +8,7 @@ USER aleks (100%1 : t0)
 
 BEGIN
 
-EF   aleks.t0 + aleks.t1 + aleks.t2 + aleks.t3 = 0
+EF   aleks.t0 + aleks.t1 + aleks.t2 + aleks.t3 = 0%1
 
 END
 

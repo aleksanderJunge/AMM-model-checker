@@ -173,7 +173,7 @@
 (assert (= t2t0_3 t2t0_2))
 (assert (= t1t2_3 t1t2_2))
 
-(define-fun totalBal ((bal (Array Token Real)))
+(define-fun worth ((bal (Array Token Real)))
                       (Real)
     (+
         (select bal t0)

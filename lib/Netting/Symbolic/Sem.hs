@@ -37,18 +37,12 @@ instance Show Decl where
 
 data UnOp
     = Not
-    | R0 | R1
-    | T  | V
     -- | Fee
     deriving (Eq, Ord)
 
 instance Show UnOp where
     show = \case
         Not -> "not"
-        R0  -> "r0"
-        R1  -> "r1"
-        T   -> "t"
-        V   -> "v"
         -- Fee -> "fee"
 
 data BinOp
@@ -85,12 +79,8 @@ instance Show TerOp where
         Store -> "store"
         Ite -> "ite"
         
-lnot, getr0, getr1, gett, getv :: Expr -> Expr
+lnot :: Expr -> Expr
 lnot   = UnOp Not
-getr0  = UnOp R0
-getr1  = UnOp R1
-gett   = UnOp T
-getv   = UnOp V
 --gfee   = UnOp Fee
 
 add, mul, sub, div, lt, gt, eq, lor, land, xor, implies, distinct, select :: Expr -> Expr -> Expr
@@ -162,10 +152,6 @@ prec (BinO Sub )     = return 7
 prec (BinO Mul )     = return 8
 prec (BinO Div )     = return 8
 prec (BinO Xor)      = Nothing -- These operators are not currently supported (some are implicitly)
-prec (UnO R0 )       = Nothing 
-prec (UnO R1 )       = Nothing
-prec (UnO T  )       = Nothing
-prec (UnO V  )       = Nothing
 prec (BinO Select)   = Nothing
 
 data Assert = Assert Expr

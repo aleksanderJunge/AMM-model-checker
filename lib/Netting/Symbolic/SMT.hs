@@ -34,22 +34,35 @@ buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
 buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
-    let swappingAmms = ammsToUse guess samms []
+    let swappingAmms = ammsToUse guess samms [] -- contains (ammName, [ammName], dir) where first ammName is the one to swap on and second is rest
+        -- TODO: make similar for USER wallets
+        swappingUsers = usersToUse guess susers toks
         stab'        = createSymvals samms stab k
     in Right $
     unlines ["(set-logic QF_NRA)"]
     ++ unlines (map show (buildVars samms susers toks useFee k))
     ++ (unlines $ map show assertions)
+    ++ unlines (map (show . decorateWithDepth 0) [ exp | INIT exp <- queries])
+    ++ unlines (map (show . decorateWithDepth k) [ exp | EF exp <- queries])
+    ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
+    ++ unlines (map (show . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
     ++ unlines ["(check-sat)"]
     -- ++ showStmts (stmts ++ symdecls)
-    -- ++ unlines (map (show . decorateWithDepth stab 0) [ exp | INIT exp <- queries])
     -- ++ (chain guess swappingAmms k)
-    -- ++ unlines (map (show . decorateWithDepth stab k) [ exp | EF exp <- queries])
-    -- ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth stab i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
-    -- ++ unlines (map (show . decorateWithDepth stab k) [ exp2 | EU exp1 exp2 <- queries])
     -- ++ unlines (getSymVals stab')
     -- ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ show <$> [1..k])
     where
+      usersToUse guesses users toks =
+        go guesses users toks (length guesses) [] 
+        where 
+          go [] users toks k acc = acc
+          go ((usr, t0, t1) : guesses) users toks k acc =
+            let remUsers        = map name (filter (\u -> (name u) /= usr) users)
+                unchangedCombs  = [(n, t, i)| n <- remUsers, t <- toks, i <- [k]] ++ 
+                                  [(n, t, i)| n <- [usr], t <- (toks \\ [t0, t1]), i <- [k]]
+                from = [(usr, t0, k)]
+                to   = [(usr, t1, k)]
+            in go guesses users toks (k - 1) ((from, to, unchangedCombs) : acc)
       ammsToUse [] amms acc = acc
       ammsToUse (guess:guesses) amms acc = 
         let t0 = snd3 guess 
@@ -63,22 +76,18 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
 
   
 -- this could be somewhat limiting in the sense that there's no way to compare variables across different time steps in the query language
-decorateWithDepth :: Symtable -> Int -> Expr -> Assert
-decorateWithDepth stab k exp =
-  Assert $ decorate exp stab k 
+decorateWithDepth :: Int -> Expr -> Assert
+decorateWithDepth k exp =
+  Assert $ decorate exp k 
   where 
-    decorate :: Expr -> Symtable -> Int -> Expr
-    decorate (Var n) stab k   =
-      case get stab n of
-        Just DAmm  -> (Var $ n ++ "_" ++ (show k))
-        Just DUser -> (select (Var $ "users" ++ (show k)) (Var $ "\""++ n ++ "\""))
-        _          -> (Var n)
-    decorate (LReal r) stab k = (LReal r)
-    decorate (LBool b) stab k = (LBool b)
-    decorate (UnOp unop e) stab k          = UnOp unop (decorate e stab k)
-    decorate (BinOp binop e1 e2) stab k    = BinOp binop (decorate e1 stab k) (decorate e2 stab k)
-    decorate (TerOp terop e1 e2 e3) stab k = TerOp terop (decorate e1 stab k) (decorate e2 stab k) (decorate e3 stab k)
-    decorate exp _ _ = exp
+    decorate :: Expr -> Int -> Expr
+    decorate (Var n) k   = (Var $ n ++ "_" ++ (show k))
+    decorate (LReal r) k = (LReal r)
+    decorate (LBool b) k = (LBool b)
+    decorate (UnOp unop e) k          = UnOp unop (decorate e k)
+    decorate (BinOp binop e1 e2) k    = BinOp binop (decorate e1 k) (decorate e2 k)
+    decorate (TerOp terop e1 e2 e3) k = TerOp terop (decorate e1 k) (decorate e2 k) (decorate e3 k)
+    decorate exp _ = exp
 
 getSymVals :: Symtable -> [String]
 getSymVals stab =
@@ -157,7 +166,7 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
             if isJust tt && (fromJust tt == DTok) then True else False
 
 -- TODO: incorporate last occurrence information, when solving for green/red states
-chain :: [ TxGuess ] -> [(String, [String], SwapDir)] -> Int -> String
+chain :: TxSeqGuess -> [(String, [String], SwapDir)] -> Int -> String
 chain guesses amms k = 
   unlines $ (constrain_txns guesses k []) ++ (chain_assertions guesses amms 0 [])
   where
