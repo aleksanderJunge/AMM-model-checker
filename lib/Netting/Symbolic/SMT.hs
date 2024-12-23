@@ -174,7 +174,7 @@ chain amms users useFee =
     go _ [] _ _ acc = acc
     go [] _ _ _ acc = acc
     go ((fee, t0Amm, t1Amm, uncAmm):amms) ((t0Usr, t1Usr, uncUsr):users) useFee k acc = 
-      go amms users useFee (k + 1) (acc ++ ([payout_assrtn, ite_assrtn]) ++ unc_assrtn)
+      go amms users useFee (k + 1) (acc ++ ([payout_assrtn, ite_assrtn, posfrom_assrtn]) ++ unc_assrtn)
       where 
         payout_assrtn = show . Assert $ 
             if not useFee then 
@@ -204,7 +204,7 @@ chain amms users useFee =
           , "  )"
           , "))"
           ]
-        --posbal_assrtn = show . Assert $ gteq (Var $ prev t0Usr) (Var $ "from" +@ show k)
+        posfrom_assrtn = show . Assert $ gt (Var $ "from" +@ show k) (LReal 0) 
         unc_assrtn = 
           let uncAmms = map (\v -> show . Assert $ eq (Var $ v) (Var $ prev v)) uncAmm
               uncUsrs = map (\v -> show . Assert $ eq (Var $ v) (Var $ prev v)) uncUsr
