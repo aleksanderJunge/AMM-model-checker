@@ -13,3 +13,6 @@ readTokUntil c input =
         (h, _:rest) ->
             if ((>1) . length . words) h then ("!", "") else (concat $ words h, rest)
         _           -> ("!", "")
+
+(+@) :: String -> String -> String
+s +@ s' = s ++ "_" ++ s'

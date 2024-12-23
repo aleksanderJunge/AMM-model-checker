@@ -98,7 +98,7 @@ parse input =
                                 case readMaybe field :: Maybe UnOp of
                                   -- Just Fee -> Just $ gfee (Var name) 
                                   Just _   -> Nothing -- other unary field operations are not permitted. (except indexing for tokens, see below)
-                                  Nothing  -> Just $ (Var $ name ++ "_" ++ field)
+                                  Nothing  -> Just $ (Var $ name +@ field)
             _ -> Nothing
     readParens :: [(Char, Int)] -> String -> Int -> [(Char, Int)]
     readParens acc []       ctr 

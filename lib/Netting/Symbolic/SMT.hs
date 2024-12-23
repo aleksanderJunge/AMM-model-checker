@@ -4,6 +4,7 @@ module Netting.Symbolic.SMT where
 import Netting.Symbolic.Interpreter.Parser
 import Netting.Symbolic.Interpreter.SymTab
 import Netting.Symbolic.Sem
+import Netting.Symbolic.Utils
 import Data.Maybe
 import Data.List
 import Data.Either
@@ -34,8 +35,7 @@ buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
 buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
-    let swappingAmms = ammsToUse guess samms [] -- contains (ammName, [ammName], dir) where first ammName is the one to swap on and second is rest
-        -- TODO: make similar for USER wallets
+    let swappingAmms = ammsToUse guess samms -- contains (ammName, [ammName], dir) where first ammName is the one to swap on and second is rest
         swappingUsers = usersToUse guess susers toks
         stab'        = createSymvals samms stab k
     in Right $
@@ -46,6 +46,7 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     ++ unlines (map (show . decorateWithDepth k) [ exp | EF exp <- queries])
     ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
     ++ unlines (map (show . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
+    ++ unlines (map show (zip swappingUsers swappingAmms))
     ++ unlines ["(check-sat)"]
     -- ++ showStmts (stmts ++ symdecls)
     -- ++ (chain guess swappingAmms k)
@@ -53,26 +54,31 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ show <$> [1..k])
     where
       usersToUse guesses users toks =
-        go guesses users toks (length guesses) [] 
+        go guesses users toks 1 [] 
         where 
-          go [] users toks k acc = acc
+          go [] users toks k acc = acc  -- TODO: check if we need any sort of guard on this statement
           go ((usr, t0, t1) : guesses) users toks k acc =
             let remUsers        = map name (filter (\u -> (name u) /= usr) users)
-                unchangedCombs  = [(n, t, i)| n <- remUsers, t <- toks, i <- [k]] ++ 
-                                  [(n, t, i)| n <- [usr], t <- (toks \\ [t0, t1]), i <- [k]]
-                from = [(usr, t0, k)]
-                to   = [(usr, t1, k)]
-            in go guesses users toks (k - 1) ((from, to, unchangedCombs) : acc)
-      ammsToUse [] amms acc = acc
-      ammsToUse (guess:guesses) amms acc = 
-        let t0 = snd3 guess 
-            t1 = thd3 guess in 
-        case find (\(SAMM _ r0' r1' _) -> ((snd $ r0') == t0 && (snd $ r1') == t1)) amms of
-            Just samm -> ammsToUse guesses amms (acc ++ [(ammName samm, map ammName (delete samm amms), LR)])
-            Nothing -> 
-              case find (\(SAMM _ r0' r1' _) -> (snd $ r1') == t0 && (snd $ r0') == t1) amms of 
-                Just samm -> ammsToUse guesses amms (acc ++ [(ammName samm, map ammName (delete samm amms), RL)])
-                Nothing   -> error "no amm on this token pair" -- TODO: handle better
+                unchangedCombs  = [(n +@ t +@ i)| n <- remUsers, t <- toks, i <- [show k]] ++ 
+                                  [(n +@ t +@ i)| n <- [usr], t <- (toks \\ [t0, t1]), i <- [show k]]
+                from = (usr +@ t0 +@ (show k))
+                to   = (usr +@ t1 +@ (show k))
+            in go guesses users toks (k + 1) (acc ++ [(from, to, unchangedCombs)])
+      ammsToUse guesses amms = 
+        go guesses amms 1 []
+        where
+          go [] amms k acc = acc
+          go ((_, t0, t1):guesses) amms k acc =
+            case find (\(SAMM _ r0' r1' _) -> ((snd $ r0') == t0 && (snd $ r1') == t1) || 
+                                              ((snd $ r0') == t1 && (snd $ r1') == t0)) amms of
+              Nothing -> error "no amm on this token pair" -- TODO: handle better
+              Just samm@(SAMM n (_, t0') (_, t1') _) ->
+                let fromVar = (if t0' == t0 then "l" else "r") +@ n +@ (show k)
+                    toVar   = (if t0' == t0 then "r" else "l") +@ n +@ (show k)
+                    remNames = [(d +@ n +@ i) | d <- ["l", "r"], 
+                                                n <- (map ammName (delete samm amms)),
+                                                i <- [show k]]
+                in go guesses amms (k + 1) (acc ++ [(fromVar, toVar, remNames)])
 
   
 -- this could be somewhat limiting in the sense that there's no way to compare variables across different time steps in the query language
@@ -81,7 +87,7 @@ decorateWithDepth k exp =
   Assert $ decorate exp k 
   where 
     decorate :: Expr -> Int -> Expr
-    decorate (Var n) k   = (Var $ n ++ "_" ++ (show k))
+    decorate (Var n) k   = (Var $ n +@ (show k))
     decorate (LReal r) k = (LReal r)
     decorate (LBool b) k = (LBool b)
     decorate (UnOp unop e) k          = UnOp unop (decorate e k)
@@ -127,18 +133,13 @@ createSymvals samms stab k =
   in  foldl (\acc st -> M.union st acc) stab' r1pairs
 bindIfNullr :: Symtable -> Maybe Rational -> String -> String -> Int -> Symtable
 bindIfNullr stab v t n k | null v = 
-  bind stab (n ++ "_" ++ t ++ "_" ++ (show k), Symval)
+  bind stab (n +@ t +@ (show k), Symval)
 bindIfNullr stab _ _ _ _ = stab
 
 setDefaultFees :: [SAMM] -> [Assert] -> [Assert]
 setDefaultFees [] acc = acc
 setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) acc =
   setDefaultFees samms (acc ++ (if fee == None then [Assert $ eq (Var $ "fee_" ++ n) (LReal 0) ] else []))
-
--- Takes as input a SAMM, and a list of expressions to apply to it at various depths
--- or maybe no SAMM, but just the rest?
-makeAmm' :: SAMM -> ([((String -> Expr), [Int])]) -> [Assert]
-makeAmm' = undefined
 
 -- TODO: enable parsing more numbers and check for subzero
 makeAmm :: SAMM -> Int -> Symtable -> Either String ([Assert], Symtable)
@@ -147,23 +148,26 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
     else if not (checkTok stab t)  then Left $ "Token: " ++ t  ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else if not (checkTok stab t') then Left $ "Token: " ++ t' ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else 
-    let assrt_v    = fromMaybe [lt (LReal 0) (Var $ "l_" ++ n ++ "_" ++ (show depth))]
-                  ( v  >>= (\v -> Just [eq (LReal v)  (Var $ "l_" ++ n ++ "_" ++ (show depth))] ))
-        assrt_v'   = fromMaybe [lt (LReal 0) (Var $ "r_" ++ n ++ "_" ++ (show depth))] 
-                  ( v' >>= (\v -> Just [eq (LReal v)  (Var $ "r_" ++ n ++ "_" ++ (show depth))] ))
+    let assrt_v    = fromMaybe [lt (LReal 0) (Var $ "l_" ++ n +@ (show depth))]
+                  ( v  >>= (\v -> Just [eq (LReal v)  (Var $ "l_" ++ n +@ (show depth))] ))
+        assrt_v'   = fromMaybe [lt (LReal 0) (Var $ "r_" ++ n +@ (show depth))] 
+                  ( v' >>= (\v -> Just [eq (LReal v)  (Var $ "r_" ++ n +@ (show depth))] ))
         assrt_f    = case fee of 
           Conc r -> [eq (LReal r) (Var $ "fee_" ++ n)]
           Sym    -> (gt (LReal 1) (Var $ "fee_" ++ n)) : [gteq (Var $ "fee_" ++ n) (LReal 0) ] -- default constraints for symbolic values for the fee
           None   -> []
         stab1 = bind stab (n, DAmm)
-        stab2 = bind stab1 ("l_" ++ n ++ "_" ++ (show depth), if null v then Symval else Concval)
-        stab3 = bind stab2 ("r_" ++ n ++ "_" ++ (show depth), if null v' then Symval else Concval)
+        stab2 = bind stab1 ("l_" ++ n +@ (show depth), if null v then Symval else Concval)
+        stab3 = bind stab2 ("r_" ++ n +@ (show depth), if null v' then Symval else Concval)
         stab4 = if fee /= None then bind stab3 ("fee_" ++ n, if fee == Sym then Symval else Concval) else stab3
     in Right $ (map Assert (assrt_v ++ assrt_v' ++ assrt_f), stab4)
     where 
         checkTok stab tok_name =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
+
+chain' :: [(String, [String], SwapDir)] -> [(String, String, [String])] -> String
+chain' = undefined
 
 -- TODO: incorporate last occurrence information, when solving for green/red states
 chain :: TxSeqGuess -> [(String, [String], SwapDir)] -> Int -> String
@@ -178,9 +182,9 @@ chain guesses amms k =
             , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
     chain_assertions guesses amms k' acc | k' == k = acc
     chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k+1) ( acc ++
-          [ "(assert (= users" ++ (show $ k + 1) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n ++ "_" ++ (show k)) ++ "))))"
-          , "(assert (= " ++ (n ++ "_" ++ (show $ k + 1)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n ++ "_" ++ (show k)) ++ "))))"
-          , unlines $ map (\s -> "(assert (= " ++ (s ++ "_" ++ (show $ k + 1)) ++ " " ++ (s ++ "_" ++ (show k)) ++ "))") ns ])
+          [ "(assert (= users" ++ (show $ k + 1) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
+          , "(assert (= " ++ (n +@ (show $ k + 1)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
+          , unlines $ map (\s -> "(assert (= " ++ (s +@ (show $ k + 1)) ++ " " ++ (s +@ (show k)) ++ "))") ns ])
       
 
 -- TODO: make a replacement for this that basically just ensures that users with unconstrained balances are printed
@@ -206,10 +210,10 @@ buildVars amms users toks useFee k =
       feeDecls  = map declFee feeCombs
   in userDecls ++ ammDecls ++ txnDecls ++ feeDecls
   where
-    declUser (n, tok, i)   = DeclVar (n ++ "_" ++ tok ++ "_" ++ (show i)) TReal
-    declAmm (prefix, n, i) = DeclVar (prefix ++ "_" ++ n ++ "_" ++ (show i)) TReal
+    declUser (n, tok, i)   = DeclVar (n +@ tok +@ (show i)) TReal
+    declAmm (prefix, n, i) = DeclVar (prefix +@ n +@ (show i)) TReal
     declFee n              = DeclVar ("fee_" ++ n) TReal
-    declTxn (field, i)     = DeclVar (field ++ "_" ++ (show i)) TReal
+    declTxn (field, i)     = DeclVar (field +@ (show i)) TReal
 
 
 -- TODO: opt point, maybe completely concretize wallet by storing rather than selecting tokens from it 
@@ -226,9 +230,9 @@ makeUser (SUser wal n) stab =
         -- TODO: consider adding symbolic values to symtable to signify that we want to print the values given to those
         conc_wal  = Util.mapSnd fromJust (filter (\(k,v) -> isJust v) wal)
         symb_wal  = filter (\(k,v) -> isNothing v) wal
-        conc_ass  = concat $ map (\(t,v) -> [eq (Var $ n ++ "_" ++ t ++ "_0") (LReal v)]) conc_wal
-        symb_ass  = concat $ map (\(t,_) -> [gteq (Var $ n ++ "_" ++ t ++ "_0") (LReal 0)]) symb_wal
-        undef_ass = concat $ map (\t     -> [eq (Var $ n ++ "_" ++ t ++ "_0") (LReal 0)]) undef
+        conc_ass  = concat $ map (\(t,v) -> [eq (Var $ n +@ t ++ "_0") (LReal v)]) conc_wal
+        symb_ass  = concat $ map (\(t,_) -> [gteq (Var $ n +@ t ++ "_0") (LReal 0)]) symb_wal
+        undef_ass = concat $ map (\t     -> [eq (Var $ n +@ t ++ "_0") (LReal 0)]) undef
         stab' = bind stab (n, DUser)
     in Right (map Assert (conc_ass ++ undef_ass ++ symb_ass), stab')
     where 
