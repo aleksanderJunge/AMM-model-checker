@@ -83,11 +83,11 @@ lnot :: Expr -> Expr
 lnot   = UnOp Not
 --gfee   = UnOp Fee
 
-add, mul, sub, div, lt, gt, eq, lor, land, xor, implies, distinct, select :: Expr -> Expr -> Expr
+add, mul, sub, divi, lt, gt, eq, lor, land, xor, implies, distinct, select :: Expr -> Expr -> Expr
 add   = BinOp Add
 mul   = BinOp Mul
 sub   = BinOp Sub
-div   = BinOp Div
+divi  = BinOp Div
 lt    = BinOp Lt
 gt    = BinOp Gt
 eq    = BinOp Eq

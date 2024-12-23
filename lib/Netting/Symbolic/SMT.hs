@@ -24,12 +24,6 @@ type TxGuess = (String, String, String)
 
 type TxSeqGuess = [TxGuess]
 
-data SwapDir = LR | RL
-
-instance Show SwapDir where 
-  show LR = "lr"
-  show RL = "rl"
-
 buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> Bool -> Symtable -> [String] -> [Query] -> TxSeqGuess -> Int -> Either String String
 buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
@@ -41,12 +35,13 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     in Right $
     unlines ["(set-logic QF_NRA)"]
     ++ unlines (map show (buildVars samms susers toks useFee k))
-    ++ (unlines $ map show assertions)
+    ++ unlines (map show assertions)
+    ++ posBalAssertion susers toks k
+    ++ (chain swappingAmms swappingUsers useFee)
     ++ unlines (map (show . decorateWithDepth 0) [ exp | INIT exp <- queries])
     ++ unlines (map (show . decorateWithDepth k) [ exp | EF exp <- queries])
     ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
     ++ unlines (map (show . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
-    ++ unlines (map show (zip swappingUsers swappingAmms))
     ++ unlines ["(check-sat)"]
     -- ++ showStmts (stmts ++ symdecls)
     -- ++ (chain guess swappingAmms k)
@@ -73,12 +68,13 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
                                               ((snd $ r0') == t1 && (snd $ r1') == t0)) amms of
               Nothing -> error "no amm on this token pair" -- TODO: handle better
               Just samm@(SAMM n (_, t0') (_, t1') _) ->
-                let fromVar = (if t0' == t0 then "l" else "r") +@ n +@ (show k)
-                    toVar   = (if t0' == t0 then "r" else "l") +@ n +@ (show k)
+                let fromVar  = (if t0' == t0 then "l" else "r") +@ n +@ (show k)
+                    toVar    = (if t0' == t0 then "r" else "l") +@ n +@ (show k)
+                    feeName  = "fee" +@ n
                     remNames = [(d +@ n +@ i) | d <- ["l", "r"], 
                                                 n <- (map ammName (delete samm amms)),
                                                 i <- [show k]]
-                in go guesses amms (k + 1) (acc ++ [(fromVar, toVar, remNames)])
+                in go guesses amms (k + 1) (acc ++ [(feeName, fromVar, toVar, remNames)])
 
   
 -- this could be somewhat limiting in the sense that there's no way to compare variables across different time steps in the query language
@@ -124,6 +120,11 @@ getCombinations useFee (samms, susers) k =
                 | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
                 | otherwise = check_tx tx txs
 
+posBalAssertion :: [SUser] -> [String] -> Int -> String
+posBalAssertion users toks k =
+  let userVars = [(n +@ t +@ i) | n <- (map name users), t <- toks, i <- (map show [0..k])]
+  in unlines $ map (\v -> show . Assert $ gteq (Var v) (LReal 0)) userVars
+
 -- TODO: refactor this bs function and the one below it
 createSymvals :: [SAMM] -> Symtable -> Int -> Symtable
 createSymvals samms stab k =
@@ -166,26 +167,74 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
 
-chain' :: [(String, [String], SwapDir)] -> [(String, String, [String])] -> String
-chain' = undefined
+chain :: [(String, String, String, [String])] -> [(String, String, [String])] -> Bool -> String
+chain amms users useFee =
+  unlines $ go amms users useFee 1 []
+  where
+    go _ [] _ _ acc = acc
+    go [] _ _ _ acc = acc
+    go ((fee, t0Amm, t1Amm, uncAmm):amms) ((t0Usr, t1Usr, uncUsr):users) useFee k acc = 
+      go amms users useFee (k + 1) (acc ++ ([payout_assrtn, ite_assrtn]) ++ unc_assrtn)
+      where 
+        payout_assrtn = show . Assert $ 
+            if not useFee then 
+              eq (Var $ "payout" +@ (show k)) 
+                 (divi 
+                   (mul (Var $ "from" +@ (show k)) (Var $ prev t1Amm)) 
+                   (add (Var $ "from" +@ (show k)) (Var $ prev t0Amm)))
+            else 
+              eq (Var $ "payout" +@ (show k)) 
+                 (divi 
+                   (mul (mul (Var $ "from" +@ (show k)) (sub (LReal 1) (Var fee))) (Var $ prev t1Amm)) 
+                   (add (mul (Var $ "from" +@ (show k)) (sub (LReal 1) (Var fee))) (Var $ prev t0Amm)))
+        ite_assrtn = unlines 
+          [ "(assert (ite"
+          , "  (and (>= to_" ++ (show k) ++ " 0) (<= to_" ++ (show k) ++ " payout_" ++ (show k) ++ "))"
+          , "  (and"
+          , "    (= "++ t0Amm ++ " (+ " ++ (prev t0Amm) ++ " " ++ ("from_"   ++ (show k)) ++ "))"
+          , "    (= "++ t1Amm ++ " (- " ++ (prev t1Amm) ++ " " ++ ("payout_" ++ (show k)) ++ "))"
+          , "    (= "++ t0Usr ++ " (- " ++ (prev t0Usr) ++ " " ++ ("from_"   ++ (show k)) ++ "))"
+          , "    (= "++ t1Usr ++ " (+ " ++ (prev t1Usr) ++ " " ++ ("payout_" ++ (show k)) ++ "))"
+          , "  )"
+          , "  (and"
+          , "    (= "++ t0Amm ++ " " ++ (prev t0Amm) ++ ")"
+          , "    (= "++ t1Amm ++ " " ++ (prev t1Amm) ++ ")"
+          , "    (= "++ t0Usr ++ " " ++ (prev t0Usr) ++ ")"
+          , "    (= "++ t1Usr ++ " " ++ (prev t1Usr) ++ ")"
+          , "  )"
+          , "))"
+          ]
+        --posbal_assrtn = show . Assert $ gteq (Var $ prev t0Usr) (Var $ "from" +@ show k)
+        unc_assrtn = 
+          let uncAmms = map (\v -> show . Assert $ eq (Var $ v) (Var $ prev v)) uncAmm
+              uncUsrs = map (\v -> show . Assert $ eq (Var $ v) (Var $ prev v)) uncUsr
+          in uncAmms ++ uncUsrs
+    prev s =
+      let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
+      in (take (length s - 1) s) ++ (show $ time - 1)
+      
+          
+          
+
+
 
 -- TODO: incorporate last occurrence information, when solving for green/red states
-chain :: TxSeqGuess -> [(String, [String], SwapDir)] -> Int -> String
-chain guesses amms k = 
-  unlines $ (constrain_txns guesses k []) ++ (chain_assertions guesses amms 0 [])
-  where
-    constrain_txns guess k acc =
-      concat $ map (\i -> 
-            [ "(assert (> (v (from txn" ++ (show i) ++ ")) 0))"
-            , "(assert (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!(i-1)) ++ "\"))"
-            , "(assert (= (t (from txn" ++ (show i) ++ ")) " ++ (snd3 $ guess!!(i-1)) ++ "))"
-            , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
-    chain_assertions guesses amms k' acc | k' == k = acc
-    chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k+1) ( acc ++
-          [ "(assert (= users" ++ (show $ k + 1) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
-          , "(assert (= " ++ (n +@ (show $ k + 1)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
-          , unlines $ map (\s -> "(assert (= " ++ (s +@ (show $ k + 1)) ++ " " ++ (s +@ (show k)) ++ "))") ns ])
-      
+--chain :: TxSeqGuess -> [(String, String [String])] -> Int -> String
+--chain guesses amms k = 
+--  unlines $ (constrain_txns guesses k []) ++ (chain_assertions guesses amms 0 [])
+--  where
+--    constrain_txns guess k acc =
+--      concat $ map (\i -> 
+--            [ "(assert (> (v (from txn" ++ (show i) ++ ")) 0))"
+--            , "(assert (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!(i-1)) ++ "\"))"
+--            , "(assert (= (t (from txn" ++ (show i) ++ ")) " ++ (snd3 $ guess!!(i-1)) ++ "))"
+--            , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
+--    chain_assertions guesses amms k' acc | k' == k = acc
+--    chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k+1) ( acc ++
+--          [ "(assert (= users" ++ (show $ k + 1) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
+--          , "(assert (= " ++ (n +@ (show $ k + 1)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
+--          , unlines $ map (\s -> "(assert (= " ++ (s +@ (show $ k + 1)) ++ " " ++ (s +@ (show k)) ++ "))") ns ])
+
 
 -- TODO: make a replacement for this that basically just ensures that users with unconstrained balances are printed
 --collectUsers :: Symtable -> Int -> Either String ([SMTStmt Decl Assert], Symtable)
