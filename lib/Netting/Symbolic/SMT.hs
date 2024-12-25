@@ -29,7 +29,7 @@ buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
 buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
-    let swappingAmms = ammsToUse guess samms -- contains (ammName, [ammName], dir) where first ammName is the one to swap on and second is rest
+    let swappingAmms = ammsToUse guess samms
         swappingUsers = usersToUse guess susers toks
         stab'        = createSymvals samms stab k
     in Right $
@@ -43,10 +43,13 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
     ++ unlines (map (show . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
     ++ unlines ["(check-sat)"]
+    -- ++ unlines ["(get-model)"]
+    ++ (unlines $ map (\i -> "(get-value (from_" ++ i ++ "))" 
+                          ++ "(get-value (to_" ++ i ++"))"
+                          ++ "(get-value (payout_" ++ i ++ "))") $ show <$> [1..k])
     -- ++ showStmts (stmts ++ symdecls)
     -- ++ (chain guess swappingAmms k)
     -- ++ unlines (getSymVals stab')
-    -- ++ (unlines $ map (\i -> "(get-value (txn" ++ i ++ "))") $ show <$> [1..k])
     where
       usersToUse guesses users toks =
         go guesses users toks 1 [] 

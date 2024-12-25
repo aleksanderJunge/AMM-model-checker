@@ -8,6 +8,7 @@ import Netting.Symbolic.Sem
 import Netting.Symbolic.SMT
 import Netting.Symbolic.Utils
 import Data.Maybe
+import Data.Char
 import Data.List
 import Data.Either
 import qualified Data.Map as M
@@ -40,10 +41,14 @@ repl = do
   satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
   case satResult of
       Nothing -> do {putStrLn "no solution found"; return ()}
-      res@(Just (depth, model)) -> do
+      res@(Just (depth, model, txs)) -> do
           putStrLn $ "Solution found at depth: " ++ (show depth)
           model' <- model
-          putStrLn model'
+          let ftp = read_model model'
+              model''  = zip ftp txs
+              to_print = map print_txn model''
+          mapM putStrLn to_print
+          return ()
                 --repl 
   where
     toks_ stab = do
@@ -135,7 +140,8 @@ repl = do
         res <- check_at_depth buildQuery k guess
         case res of 
             Nothing  -> check buildQuery ks guesses
-            Just txs -> pure $ Just (k, liftM snd txs)
+            Just (out, txs) -> do 
+              pure $ Just (k, liftM snd out, txs)
     check_at_depth buildQuery k guesses = do
         txRes <- findM (\x -> liftM (not . fst) $ check_sat buildQuery k x) guesses
         case txRes of 
@@ -143,7 +149,9 @@ repl = do
                 putStrLn $ "No solution found at depth: " ++ (show k)
                 pure Nothing
             -- TODO: optimize to not run sat on this twice!
-            Just txs -> pure . Just $ check_sat buildQuery k txs
+            Just txs -> do 
+              putStrLn $ "found solution:" ++ show txs
+              pure . Just $ (check_sat buildQuery k txs, txs)
     check_sat buildQuery k guess = do
         putStrLn $ show guess
         writeFile "/tmp/check_goal.smt2" (case buildQuery guess k of {Left e -> error e; Right r -> r})
@@ -151,3 +159,13 @@ repl = do
         case take 3 stdout of
             "sat"     -> pure (False, stdout)
             otherwise -> pure (True, stderr)
+    read_model model =
+      let terms   = map (\l -> drop 2 $ take (length l - 2) l) (lines model)
+          tabled  = map (span (\c -> isAlphaNum c || c == '_')) terms
+          tabled' = filter (\(f, s) -> not $ null f || null s) tabled
+          from    = map snd (filter (\(f, s)-> (take 4 f) == "from") tabled')
+          to      = map snd (filter (\(f, s)-> (take 2 f) == "to") tabled')
+          payout  = map snd (filter (\(f, s)-> (take 6 f) == "payout") tabled')
+      in zip3 from to payout
+    print_txn ((f,t,p),(sender, t0, t1)) = 
+      sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
