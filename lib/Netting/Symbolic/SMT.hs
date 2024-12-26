@@ -145,6 +145,7 @@ setDefaultFees [] acc = acc
 setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) acc =
   setDefaultFees samms (acc ++ (if fee == None then [Assert $ eq (Var $ "fee_" ++ n) (LReal 0) ] else []))
 
+
 -- TODO: enable parsing more numbers and check for subzero
 makeAmm :: SAMM -> Int -> Symtable -> Either String ([Assert], Symtable)
 makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
@@ -160,11 +161,11 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
           Conc r -> [eq (LReal r) (Var $ "fee_" ++ n)]
           Sym    -> (gt (LReal 1) (Var $ "fee_" ++ n)) : [gteq (Var $ "fee_" ++ n) (LReal 0) ] -- default constraints for symbolic values for the fee
           None   -> []
-        stab1 = bind stab (n, DAmm)
-        stab2 = bind stab1 ("l_" ++ n +@ "0", if null v then Symval else Concval)
-        stab3 = bind stab2 ("r_" ++ n +@ "0", if null v' then Symval else Concval)
-        stab4 = if fee /= None then bind stab3 ("fee_" ++ n, if fee == Sym then Symval else Concval) else stab3
-    in Right $ (map Assert (assrt_v ++ assrt_v' ++ assrt_f), stab4)
+        stab1 = bind stab (n, DAmm t t')
+        --stab2 = bind stab1 ("l_" ++ n +@ "0", if null v then Symval else Concval)
+        --stab3 = bind stab2 ("r_" ++ n +@ "0", if null v' then Symval else Concval)
+        stab2 = if fee /= None then bind stab1 ("fee_" ++ n, if fee == Sym then Symval else Concval) else stab
+    in Right $ (map Assert (assrt_v ++ assrt_v' ++ assrt_f), stab2)
     where 
         checkTok stab tok_name =
             let tt = get stab tok_name in

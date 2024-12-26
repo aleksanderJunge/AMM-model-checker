@@ -161,6 +161,18 @@ repl = do
         case take 3 stdout of
             "sat"     -> pure (False, stdout)
             otherwise -> pure (True, stderr)
+    pair_amms_tx stab txns = 
+      let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
+          pairs = map (\(_, t0, t1) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
+                                                                         (t0' == t1 && t1' == t0); _ -> False}) amms) txns
+          unjust = catMaybes pairs
+      in if length pairs /= length unjust then Left "one amm pair not found" else 
+      let unwrapped = catMaybes $ map (\case {(n, DAmm t0 t1) -> return (n, t0, t1); _ -> Nothing}) unjust
+          withdir = zipWith3 (\(n, t0, t1) (_, t0', t1') i -> 
+            if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i) else ("r" +@ n +@ i, "l" +@ n +@ i)) 
+              unwrapped txns (map show [1..(length txns)])
+      in return withdir
+    
     read_model model =
       let terms   = map (\l -> drop 2 $ take (length l - 2) l) (lines model)
           tabled  = map (span (\c -> isAlphaNum c || c == '_')) terms

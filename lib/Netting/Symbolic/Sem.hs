@@ -161,7 +161,7 @@ instance Show Assert where
 
 data SMTStmt a b = Dec a | Ass b
 
-data SType = DTok | DAmm | DUser | DUsers | Symval | Concval deriving (Eq, Ord, Show)
+data SType = DTok | DAmm String String | DUser | DUsers | Symval | Concval deriving (Eq, Ord, Show)
 
 data TFee r = Conc r | Sym | None deriving (Show, Eq)
 
