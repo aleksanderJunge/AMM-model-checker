@@ -152,17 +152,17 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
     else if not (checkTok stab t)  then Left $ "Token: " ++ t  ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else if not (checkTok stab t') then Left $ "Token: " ++ t' ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else 
-    let assrt_v    = fromMaybe [lt (LReal 0) (Var $ "l_" ++ n +@ (show depth))]
-                  ( v  >>= (\v -> Just [eq (LReal v)  (Var $ "l_" ++ n +@ (show depth))] ))
-        assrt_v'   = fromMaybe [lt (LReal 0) (Var $ "r_" ++ n +@ (show depth))] 
-                  ( v' >>= (\v -> Just [eq (LReal v)  (Var $ "r_" ++ n +@ (show depth))] ))
+    let assrt_v    = fromMaybe [lt (LReal 0) (Var $ "l_" ++ n +@ "0")]
+                  ( v  >>= (\v -> Just [eq (LReal v)  (Var $ "l_" ++ n +@ "0")] ))
+        assrt_v'   = fromMaybe [lt (LReal 0) (Var $ "r_" ++ n +@ "0")] 
+                  ( v' >>= (\v -> Just [eq (LReal v)  (Var $ "r_" ++ n +@ "0")] ))
         assrt_f    = case fee of 
           Conc r -> [eq (LReal r) (Var $ "fee_" ++ n)]
           Sym    -> (gt (LReal 1) (Var $ "fee_" ++ n)) : [gteq (Var $ "fee_" ++ n) (LReal 0) ] -- default constraints for symbolic values for the fee
           None   -> []
         stab1 = bind stab (n, DAmm)
-        stab2 = bind stab1 ("l_" ++ n +@ (show depth), if null v then Symval else Concval)
-        stab3 = bind stab2 ("r_" ++ n +@ (show depth), if null v' then Symval else Concval)
+        stab2 = bind stab1 ("l_" ++ n +@ "0", if null v then Symval else Concval)
+        stab3 = bind stab2 ("r_" ++ n +@ "0", if null v' then Symval else Concval)
         stab4 = if fee /= None then bind stab3 ("fee_" ++ n, if fee == Sym then Symval else Concval) else stab3
     in Right $ (map Assert (assrt_v ++ assrt_v' ++ assrt_f), stab4)
     where 

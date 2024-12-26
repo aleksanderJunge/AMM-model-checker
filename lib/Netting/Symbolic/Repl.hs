@@ -25,7 +25,8 @@ repl = do
   --putStrLn "Declare tokens"
   (stab', toknames) <- toks_ symtab 
   --putStrLn "Define initial state"
-  (stab'', stmts, amms, users) <- init_ stab' [] [] []
+  depth <- getDepth
+  (stab'', stmts, amms, users) <- init_ depth stab' [] [] []
   let useFee      = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
       defaultFees = if useFee then setDefaultFees amms [] else []
  -- case collectUsers stab'' 0 of
@@ -36,7 +37,6 @@ repl = do
   --putStrLn "Set constraints"
   (constraints) <- constrain []
   ----putStrLn "How deep to check?"
-  depth <- getDepth
   let combs  =  getCombinations useFee (amms, users) depth
   satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
   case satResult of
@@ -69,34 +69,36 @@ repl = do
       --putStr ">> "
       --hFlush stdout
       line <- getLine
-      case TR.readMaybe line :: Maybe Int of 
-        Just i -> pure i
-        Nothing -> do {putStrLn "Please enter an Int as depth:"; getDepth}
+      if take 5 line == "DEPTH" then 
+        case TR.readMaybe (drop 5 line) :: Maybe Int of 
+          Just i -> pure i
+          Nothing -> do {putStrLn "Please enter an Int as depth:"; getDepth}
+      else getDepth
 
-    init_ stab stmts amms users = do
+    init_ k stab stmts amms users = do
       --putStr ">> "
       --hFlush stdout
       line <- getLine
       if take 5 line == "BEGIN" then return (stab, stmts, amms, users)
       else case TR.readMaybe line :: Maybe SAMM of
         Just samm -> do
-          case makeAmm samm 0 stab of
-            Left e -> do {putStrLn e; init_ stab stmts amms users}
+          case makeAmm samm k stab of
+            Left e -> do {putStrLn e; init_ k stab stmts amms users}
             Right (r, stab') -> do 
                 --putStrLn $ showStmts r
                 --putStrLn $ show stab'
-                init_ stab' (stmts ++ r) (samm : amms) users
+                init_ k stab' (stmts ++ r) (samm : amms) users
         Nothing ->
             case TR.readMaybe line :: Maybe SUser of 
             Just user ->
                 case makeUser user stab of
-                Left e -> do {putStrLn e; init_ stab stmts amms users}
+                Left e -> do {putStrLn e; init_ k stab stmts amms users}
                 Right (r, stab') -> do 
                     --putStrLn $ showStmts r 
-                    init_ stab' (stmts ++ r) amms (user : users)
+                    init_ k stab' (stmts ++ r) amms (user : users)
             Nothing -> do
                 --putStrLn $ "Didn't catch that"
-                init_ stab stmts amms users
+                init_ k stab stmts amms users
 
     constrain acc = do
       --putStr ">> "
