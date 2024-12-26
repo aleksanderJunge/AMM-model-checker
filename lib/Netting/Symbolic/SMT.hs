@@ -43,10 +43,10 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
     ++ unlines (map (show . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
     ++ unlines ["(check-sat)"]
-    -- ++ unlines ["(get-model)"]
-    ++ (unlines $ map (\i -> "(get-value (from_" ++ i ++ "))" 
-                          ++ "(get-value (to_" ++ i ++"))"
-                          ++ "(get-value (payout_" ++ i ++ "))") $ show <$> [1..k])
+    ++ unlines ["(get-model)"]
+    -- ++ (unlines $ map (\i -> "(get-value (from_" ++ i ++ "))" 
+    --                       ++ "(get-value (to_" ++ i ++"))"
+    --                       ++ "(get-value (payout_" ++ i ++ "))") $ show <$> [1..k])
     -- ++ showStmts (stmts ++ symdecls)
     -- ++ (chain guess swappingAmms k)
     -- ++ unlines (getSymVals stab')

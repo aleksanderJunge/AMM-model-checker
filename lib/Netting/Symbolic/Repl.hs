@@ -18,6 +18,7 @@ import System.IO
 import System.Process ( readProcessWithExitCode )
 import Control.Monad
 import Control.Monad.Extra
+import Debug.Trace
 
 repl :: IO ()
 repl = do
@@ -44,10 +45,11 @@ repl = do
       res@(Just (depth, model, txs)) -> do
           putStrLn $ "Solution found at depth: " ++ (show depth)
           model' <- model
-          let ftp = read_model model'
-              model''  = zip ftp txs
-              to_print = map print_txn model''
-          mapM putStrLn to_print
+          --let ftp = read_model model'
+          --    model''  = zip ftp txs
+          --    to_print = map print_txn model''
+          --mapM putStrLn to_print
+          mapM print (toTerms model')
           return ()
                 --repl 
   where
@@ -174,7 +176,7 @@ repl = do
       in return withdir
     
     read_model model =
-      let terms   = map (\l -> drop 2 $ take (length l - 2) l) (lines model)
+      let terms   = toTerms model
           tabled  = map (span (\c -> isAlphaNum c || c == '_')) terms
           tabled' = filter (\(f, s) -> not $ null f || null s) tabled
           from    = map snd (filter (\(f, s)-> (take 4 f) == "from") tabled')
@@ -183,3 +185,19 @@ repl = do
       in zip3 from to payout
     print_txn ((f,t,p),(sender, t0, t1)) = 
       sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
+  
+-- takes as input a model output, and splits it into sub-terms
+toTerms :: String -> [String]
+toTerms model = 
+  let model'  = filter (/= '\n') model
+  in splitPars model' []
+  where 
+    splitPars s acc | all (flip elem "\t\n ") s = acc
+    splitPars s acc = 
+      let terms = dropWhile (/= '(') s
+          (term, rest) = readUntilMatchPar (drop 1 terms) 1 []
+      in trace (drop 1 terms) (splitPars rest (term : acc))
+    readUntilMatchPar ('(' : rest) depth acc = readUntilMatchPar rest (depth + 1) (acc ++ "(")
+    readUntilMatchPar (')' : rest) depth acc | depth == 1 = (acc, rest)
+    readUntilMatchPar (')' : rest) depth acc = readUntilMatchPar rest (depth - 1) (acc ++ ")")
+    readUntilMatchPar (c : rest) depth acc = readUntilMatchPar rest depth (acc ++ [c])
