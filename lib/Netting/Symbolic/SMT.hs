@@ -147,8 +147,8 @@ setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) acc =
 
 
 -- TODO: enable parsing more numbers and check for subzero
-makeAmm :: SAMM -> Int -> Symtable -> Either String ([Assert], Symtable)
-makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
+makeAmm :: SAMM -> Symtable -> Either String ([Assert], Symtable)
+makeAmm (SAMM n (v, t) (v', t') fee) stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
     else if not (checkTok stab t)  then Left $ "Token: " ++ t  ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else if not (checkTok stab t') then Left $ "Token: " ++ t' ++ " doesn't exist" ++ " in stab: " ++ (show stab)
@@ -164,7 +164,7 @@ makeAmm (SAMM n (v, t) (v', t') fee) depth stab =
         stab1 = bind stab (n, DAmm t t')
         --stab2 = bind stab1 ("l_" ++ n +@ "0", if null v then Symval else Concval)
         --stab3 = bind stab2 ("r_" ++ n +@ "0", if null v' then Symval else Concval)
-        stab2 = if fee /= None then bind stab1 ("fee_" ++ n, if fee == Sym then Symval else Concval) else stab
+        stab2 = if fee /= None then bind stab1 ("fee_" ++ n, if fee == Sym then Symval else Concval) else stab1
     in Right $ (map Assert (assrt_v ++ assrt_v' ++ assrt_f), stab2)
     where 
         checkTok stab tok_name =

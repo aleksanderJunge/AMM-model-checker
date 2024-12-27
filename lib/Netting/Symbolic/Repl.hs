@@ -11,6 +11,7 @@ import Data.Maybe
 import Data.Char
 import Data.List
 import Data.Either
+import Data.Either.Extra
 import qualified Data.Map as M
 import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
@@ -27,7 +28,8 @@ repl = do
   (stab', toknames) <- toks_ symtab 
   --putStrLn "Define initial state"
   depth <- getDepth
-  (stab'', stmts, amms, users) <- init_ depth stab' [] [] []
+  (stab'', stmts, amms, users) <- init_ stab' [] [] []
+  putStrLn $ show stab''
   let useFee      = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
       defaultFees = if useFee then setDefaultFees amms [] else []
  -- case collectUsers stab'' 0 of
@@ -45,11 +47,12 @@ repl = do
       res@(Just (depth, model, txs)) -> do
           putStrLn $ "Solution found at depth: " ++ (show depth)
           model' <- model
-          --let ftp = read_model model'
-          --    model''  = zip ftp txs
-          --    to_print = map print_txn model''
-          --mapM putStrLn to_print
-          mapM print (toTerms model')
+          let ftpr0r1  = read_model stab'' txs model'
+              model''  = zip ftpr0r1 txs
+              to_print = map print_txn model''
+              amms     = pair_amms_tx stab'' txs
+
+          mapM putStrLn to_print
           return ()
                 --repl 
   where
@@ -77,30 +80,30 @@ repl = do
           Nothing -> do {putStrLn "Please enter an Int as depth:"; getDepth}
       else getDepth
 
-    init_ k stab stmts amms users = do
+    init_ stab stmts amms users = do
       --putStr ">> "
       --hFlush stdout
       line <- getLine
       if take 5 line == "BEGIN" then return (stab, stmts, amms, users)
       else case TR.readMaybe line :: Maybe SAMM of
         Just samm -> do
-          case makeAmm samm k stab of
-            Left e -> do {putStrLn e; init_ k stab stmts amms users}
+          case makeAmm samm stab of
+            Left e -> do {putStrLn e; init_ stab stmts amms users}
             Right (r, stab') -> do 
                 --putStrLn $ showStmts r
                 --putStrLn $ show stab'
-                init_ k stab' (stmts ++ r) (samm : amms) users
+                init_ stab' (stmts ++ r) (samm : amms) users
         Nothing ->
             case TR.readMaybe line :: Maybe SUser of 
             Just user ->
                 case makeUser user stab of
-                Left e -> do {putStrLn e; init_ k stab stmts amms users}
+                Left e -> do {putStrLn e; init_ stab stmts amms users}
                 Right (r, stab') -> do 
                     --putStrLn $ showStmts r 
-                    init_ k stab' (stmts ++ r) amms (user : users)
+                    init_ stab' (stmts ++ r) amms (user : users)
             Nothing -> do
                 --putStrLn $ "Didn't catch that"
-                init_ k stab stmts amms users
+                init_ stab stmts amms users
 
     constrain acc = do
       --putStr ">> "
@@ -175,28 +178,50 @@ repl = do
               unwrapped txns (map show [1..(length txns)])
       in return withdir
     
-    read_model model =
-      let terms   = toTerms model
-          tabled  = map (span (\c -> isAlphaNum c || c == '_')) terms
-          tabled' = filter (\(f, s) -> not $ null f || null s) tabled
-          from    = map snd (filter (\(f, s)-> (take 4 f) == "from") tabled')
-          to      = map snd (filter (\(f, s)-> (take 2 f) == "to") tabled')
-          payout  = map snd (filter (\(f, s)-> (take 6 f) == "payout") tabled')
-      in zip3 from to payout
-    print_txn ((f,t,p),(sender, t0, t1)) = 
-      sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
+    read_model stab txs model =
+      let --terms   = toTerms model
+          --tabled  = map (span (\c -> isAlphaNum c || c == '_')) terms
+          pairs  = toTerms model
+          pairs' = filter (\(f, s) -> not $ null f || null s) pairs
+          from    = map snd (filter (\(f, s)-> (take 4 f) == "from") pairs')
+          to      = map snd (filter (\(f, s)-> (take 2 f) == "to") pairs')
+          payout  = map snd (filter (\(f, s)-> (take 6 f) == "payout") pairs')
+          (r0s, r1s) = unzip $ fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
+          r0s'    = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r0s
+          r1s'    = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r1s
+          r0sprev = map prev r0s
+          r1sprev = map prev r0s
+          r0s''   = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r0sprev
+          r1s''   = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r1sprev
+      in zip5 from to payout (zip r0s'' r0s') (zip r1s'' r1s')
+      where 
+        prev s =
+          let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
+          in (take (length s - 1) s) ++ (show $ time - 1)
+
+    print_txn ((f,t,p, (r0p, r0c), (r1p, r1c)),(sender, t0, t1)) = 
+      unlines $ 
+      [ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
+      , sender ++ ": <--- receives(" ++ p ++ " : " ++ t1 ++ ") --- (" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")"
+      ]
+      --sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
   
 -- takes as input a model output, and splits it into sub-terms
-toTerms :: String -> [String]
+toTerms :: String -> [(String, String)]
 toTerms model = 
-  let model'  = filter (/= '\n') model
-  in splitPars model' []
+  let model'  = map (\c -> if c == '\n' then ' ' else c) model
+      model'' = drop 1 (dropWhile (/= '(') model') 
+      model''' = reverse $ drop 1 (dropWhile (/= ')') $ reverse model'') 
+      splitted = splitPars model''' []
+      names    = map (\e -> (words e) !! 1) splitted
+      vals     = map (\e -> unwords . (drop 4) $ words e) splitted
+  in zip names vals
   where 
     splitPars s acc | all (flip elem "\t\n ") s = acc
     splitPars s acc = 
       let terms = dropWhile (/= '(') s
           (term, rest) = readUntilMatchPar (drop 1 terms) 1 []
-      in trace (drop 1 terms) (splitPars rest (term : acc))
+      in (splitPars rest (term : acc))
     readUntilMatchPar ('(' : rest) depth acc = readUntilMatchPar rest (depth + 1) (acc ++ "(")
     readUntilMatchPar (')' : rest) depth acc | depth == 1 = (acc, rest)
     readUntilMatchPar (')' : rest) depth acc = readUntilMatchPar rest (depth - 1) (acc ++ ")")
