@@ -34,6 +34,8 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
         stab'        = createSymvals samms stab k
     in Right $
     unlines ["(set-logic QF_NRA)"]
+    ++ unlines ["(set-option :pp.decimal true)"] -- TODO: make this an option
+    ++ unlines ["(set-option :pp.decimal_precision 3)"]
     ++ unlines (map show (buildVars samms susers toks useFee k))
     ++ unlines (map show assertions)
     ++ posBalAssertion susers toks k

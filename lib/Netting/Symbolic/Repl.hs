@@ -183,14 +183,14 @@ repl = do
           --tabled  = map (span (\c -> isAlphaNum c || c == '_')) terms
           pairs  = toTerms model
           pairs' = filter (\(f, s) -> not $ null f || null s) pairs
-          from    = map snd (filter (\(f, s)-> (take 4 f) == "from") pairs')
-          to      = map snd (filter (\(f, s)-> (take 2 f) == "to") pairs')
-          payout  = map snd (filter (\(f, s)-> (take 6 f) == "payout") pairs')
+          from    = map snd . sort $ (filter (\(f, s)-> (take 4 f) == "from") pairs') -- TODO: sort these !!!!! and below
+          to      = map snd . sort $ (filter (\(f, s)-> (take 2 f) == "to") pairs')
+          payout  = map snd . sort $ (filter (\(f, s)-> (take 6 f) == "payout") pairs')
           (r0s, r1s) = unzip $ fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
           r0s'    = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r0s
           r1s'    = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r1s
           r0sprev = map prev r0s
-          r1sprev = map prev r0s
+          r1sprev = map prev r1s
           r0s''   = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r0sprev
           r1s''   = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r1sprev
       in zip5 from to payout (zip r0s'' r0s') (zip r1s'' r1s')
@@ -201,7 +201,8 @@ repl = do
 
     print_txn ((f,t,p, (r0p, r0c), (r1p, r1c)),(sender, t0, t1)) = 
       unlines $ 
-      [ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
+      [ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
+      --[ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
       , sender ++ ": <--- receives(" ++ p ++ " : " ++ t1 ++ ") --- (" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")"
       ]
       --sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
