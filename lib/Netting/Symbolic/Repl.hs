@@ -29,7 +29,6 @@ repl = do
   --putStrLn "Define initial state"
   depth <- getDepth
   (stab'', stmts, amms, users) <- init_ stab' [] [] []
-  putStrLn $ show stab''
   let useFee      = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
       defaultFees = if useFee then setDefaultFees amms [] else []
  -- case collectUsers stab'' 0 of
@@ -38,7 +37,7 @@ repl = do
   --putStrLn "initial state looks like:"
   --putStrLn $ showStmts (stmts ++ users0)
   --putStrLn "Set constraints"
-  (constraints) <- constrain []
+  (constraints) <- constrain stab'' []
   ----putStrLn "How deep to check?"
   let combs  =  getCombinations useFee (amms, users) depth
   satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
@@ -105,41 +104,41 @@ repl = do
                 --putStrLn $ "Didn't catch that"
                 init_ stab stmts amms users
 
-    constrain acc = do
+    constrain stab acc = do
       --putStr ">> "
       --hFlush stdout
       line <- getLine
       case line of
         'I':'N':'I':'T':s -> 
-          case parse s of
+          case parse stab s of
             Right exp -> do 
                 --putStrLn "adding constraint:"
                 --putStrLn $ show (INIT exp)
-                constrain (acc ++ [INIT exp])
-            Left e    -> do {putStrLn e; constrain acc}
+                constrain stab (acc ++ [INIT exp])
+            Left e    -> do {putStrLn e; constrain stab acc}
         'E':'F':s   ->
-          case parse s of
+          case parse stab s of
             Right exp -> do 
                 --putStrLn "adding constraint:"
                 --putStrLn $ show (EF exp)
-                constrain (acc ++ [EF exp])
-            Left e    -> do {putStrLn e; constrain acc}
+                constrain stab (acc ++ [EF exp])
+            Left e    -> do {putStrLn e; constrain stab acc}
         'E':'U':s   ->
           let (blank1, rest1) = readUntil '(' s
               (exp1,   rest2) = readUntil ')' rest1
               (blank2, rest3) = readUntil '(' rest2
               (exp2, _)       = readUntil ')' rest3
           in if any ((==) "!") [blank1, exp1, blank2, exp2] then
-            do {putStrLn "failed reading EU, syntax is: EU (exp1) (exp2)"; constrain acc} else
-            case parse exp1 of
+            do {putStrLn "failed reading EU, syntax is: EU (exp1) (exp2)"; constrain stab acc} else
+            case parse stab exp1 of
               Right exp1 ->
-                case parse exp2 of
+                case parse stab exp2 of
                   Right exp2 -> do 
-                    constrain (acc ++ [EU exp1 exp2])
-                  Left e -> do {putStrLn e; constrain acc}
-              Left e    -> do {putStrLn e; constrain acc}
+                    constrain stab (acc ++ [EU exp1 exp2])
+                  Left e -> do {putStrLn e; constrain stab acc}
+              Left e    -> do {putStrLn e; constrain stab acc}
         'E':'N':'D':s -> return acc
-        _        -> constrain acc
+        _        -> constrain stab acc
 
     check buildQuery [] guesses = pure Nothing
     check buildQuery ks []      = pure Nothing 

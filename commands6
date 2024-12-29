@@ -1,0 +1,13 @@
+TOKENS (t0, t1)
+DEPTH 5
+
+AMM t0t1 (12%1 : t0, 12%1  : t1)
+
+USER aleks   (296%110 : t1)
+USER alberto (182%55 : t1)
+
+BEGIN
+
+EF   aleks.t0 = 2%1 && alberto.t0 = 2%1
+
+END

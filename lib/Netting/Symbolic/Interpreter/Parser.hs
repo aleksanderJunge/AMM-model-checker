@@ -8,6 +8,7 @@ import Netting.Symbolic.Utils
 import Netting.Symbolic.Interpreter.SymTab
 import Data.List.Split
 import Data.List
+import qualified Data.Map as M
 import Data.List.Extra
 import qualified GHC.Utils.Misc as Util
 import Data.Either
@@ -18,13 +19,13 @@ import Debug.Trace
 
 type ToParse = ParseHelper Expr UnOp BinOp
 
-parse :: String -> Either String Expr
-parse input = 
+parse :: Env String SType -> String -> Either String Expr
+parse stab input = 
   let string_depth = mergeToks . splitWhen' . reverse $ readParens [] input 0
   in if isLeft string_depth then Left "failed to parse string depth" else
-    let string_depth' = Util.mapFst tokenize (fromRight [] string_depth)
-    in if (>0) . length $ filter (\(exp, _) -> isNothing exp) string_depth' then Left "Tokenization failed" else 
-    let tokens_depth = Util.mapFst fromJust string_depth'
+    let string_depth' = Util.mapFst (tokenize stab) (fromRight [] string_depth)
+    in if any isLeft (map fst string_depth') then Left . concat . intersperse "\n" $ lefts (map fst string_depth') else 
+    let tokens_depth = Util.mapFst fromRight' string_depth'
     in case parseRec tokens_depth of
       Right [(Done exp, _)] -> Right exp
       Right _ -> Left "parsing didn't result in single exp"
@@ -69,37 +70,40 @@ parse input =
           Just (BinO _)   -> Left "Found 2 operands next to each other"
           Just (Done exp) -> Right exp
 
-    tokenize :: String -> Maybe ToParse
-    tokenize s =
+    tokenize :: Env String SType -> String -> Either String ToParse
+    tokenize stab s =
       case readMaybe s :: Maybe UnOp of
-        Just uno -> return . UnO $ uno
+        Just uno -> Right . UnO $ uno
         Nothing  -> do
           case readMaybe s :: Maybe BinOp of
-            Just bino -> return . BinO $ bino
+            Just bino -> Right . BinO $ bino
             Nothing   -> do
               case readMaybe s :: Maybe Rational of 
-                Just r -> return . Done $ LReal r
+                Just r -> Right . Done $ LReal r
                 Nothing -> 
-                  case toVar s of
-                    Just exp -> return . Done $ exp
-                    Nothing  -> Nothing
+                  case toVar stab s of
+                    Right exp -> return . Done $ exp
+                    Left err  -> Left err
     isRatio "" = False
     isRatio r  = 
         if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
         case Util.split '%' r of 
             (num:den:[]) | all isNumber num && all isNumber den -> True
             _ -> False
-    toVar "" = Nothing
-    toVar n = 
+    toVar stab "" = Left "indexing empty string"
+    toVar stab n = 
         case Util.split '.' n of 
-            (name:[])       | all (\c -> isAlphaNum c || c == '_') name  -> Just $ Var (name)
+            (name:[])       | all (\c -> isAlphaNum c || c == '_') name  -> Right $ Var (name)
             (name:field:[]) | all (\c -> isAlphaNum c || c == '_') name &&
                               all (\c -> isAlphaNum c || c == '_') field ->
-                                case readMaybe field :: Maybe UnOp of
-                                  -- Just Fee -> Just $ gfee (Var name) 
-                                  Just _   -> Nothing -- other unary field operations are not permitted. (except indexing for tokens, see below)
-                                  Nothing  -> Just $ (Var $ name +@ field)
-            _ -> Nothing
+                                case M.lookup name stab of 
+                                  Just DUser ->  Right . Var $ name +@ field
+                                  Just (DAmm t0 t1) | field == t0    ->  Right . Var $ "l" +@ name
+                                  Just (DAmm t0 t1) | field == t1    ->  Right . Var $ "r" +@ name
+                                  Just (DAmm t0 t1) | field == "fee" ->  Right . Var $ field +@ name
+                                  Just (DAmm _ _)  ->  Left $ "field of AMM: " ++ name ++ " being indexed isn't a token on this AMM!"
+                                  Just DTok->  Left $ "Tried to index a token"
+                                  _ -> Left $ "field indexing: " ++ name ++ " failed."
     readParens :: [(Char, Int)] -> String -> Int -> [(Char, Int)]
     readParens acc []       ctr 
         | ctr > 0               = [] -- error wrong parenthesis

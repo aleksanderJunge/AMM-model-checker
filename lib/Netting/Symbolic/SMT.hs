@@ -31,7 +31,7 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms
         swappingUsers = usersToUse guess susers toks
-        stab'        = createSymvals samms stab k
+        --stab'        = createSymvals samms stab k
     in Right $
     unlines ["(set-logic QF_NRA)"]
     ++ unlines ["(set-option :pp.decimal true)"] -- TODO: make this an option
@@ -88,9 +88,11 @@ decorateWithDepth k exp =
   Assert $ decorate exp k 
   where 
     decorate :: Expr -> Int -> Expr
-    decorate (Var n) k   = (Var $ n +@ (show k))
-    decorate (LReal r) k = (LReal r)
-    decorate (LBool b) k = (LBool b)
+    decorate (Var n) k 
+      | take 4 n == "fee_"  = Var n --fee remains unchanged, TODO: use symtab to do this instead of string checking
+      | otherwise           = Var $ n +@ show k
+    decorate (LReal r) k = LReal r
+    decorate (LBool b) k = LBool b
     decorate (UnOp unop e) k          = UnOp unop (decorate e k)
     decorate (BinOp binop e1 e2) k    = BinOp binop (decorate e1 k) (decorate e2 k)
     decorate (TerOp terop e1 e2 e3) k = TerOp terop (decorate e1 k) (decorate e2 k) (decorate e3 k)
@@ -219,39 +221,6 @@ chain amms users useFee =
       let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
       in (take (length s - 1) s) ++ (show $ time - 1)
       
-          
-          
-
-
-
--- TODO: incorporate last occurrence information, when solving for green/red states
---chain :: TxSeqGuess -> [(String, String [String])] -> Int -> String
---chain guesses amms k = 
---  unlines $ (constrain_txns guesses k []) ++ (chain_assertions guesses amms 0 [])
---  where
---    constrain_txns guess k acc =
---      concat $ map (\i -> 
---            [ "(assert (> (v (from txn" ++ (show i) ++ ")) 0))"
---            , "(assert (= (user txn" ++ (show i) ++ ") \"" ++ ( fst3 $ guess!!(i-1)) ++ "\"))"
---            , "(assert (= (t (from txn" ++ (show i) ++ ")) " ++ (snd3 $ guess!!(i-1)) ++ "))"
---            , "(assert (= (t (to   txn" ++ (show i) ++ ")) " ++ (thd3 $ guess!!(i-1)) ++ "))"] ) [1..k]
---    chain_assertions guesses amms k' acc | k' == k = acc
---    chain_assertions (guess:guesses) ((n, ns, dir):nsDirs) k acc = chain_assertions guesses nsDirs (k+1) ( acc ++
---          [ "(assert (= users" ++ (show $ k + 1) ++ " (snd (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
---          , "(assert (= " ++ (n +@ (show $ k + 1)) ++ " (fst (swap" ++ (show dir) ++ " users" ++ (show k) ++ " txn" ++ (show $ k + 1) ++ " " ++ (n +@ (show k)) ++ "))))"
---          , unlines $ map (\s -> "(assert (= " ++ (s +@ (show $ k + 1)) ++ " " ++ (s +@ (show k)) ++ "))") ns ])
-
-
--- TODO: make a replacement for this that basically just ensures that users with unconstrained balances are printed
---collectUsers :: Symtable -> Int -> Either String ([SMTStmt Decl Assert], Symtable)
---collectUsers stab i = 
---    let cname      = "users" ++ (show i) in
---    if isJust (get stab cname ) then Left $ " user collection already defined for depth: " ++ (show i) else
---    let users      = map fst (filter (\(k,v) -> v == DUser) (M.toList stab))
---        usersState = [Ass . Assert $  eq (Var cname) (foldl (\acc u -> store acc (Var ("\"" ++ u ++ "\"")) (Var u)) (Var "baseUsers") users)]
---        --assertions = concat $ map (\u -> [Ass . Assert $ eq (Var u) (select (Var cname) ()) ]) users
---        stab'      = bind stab (cname, DUsers)
---    in Right (usersState, stab')
 
 buildVars :: [SAMM] -> [SUser] -> [String] -> Bool -> Int -> [Decl]
 buildVars amms users toks useFee k =
