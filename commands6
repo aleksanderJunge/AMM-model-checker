@@ -1,13 +1,13 @@
 TOKENS (t0, t1)
-DEPTH 5
+DEPTH 10
 
-AMM t0t1 (12%1 : t0, 12%1  : t1)
+AMM t0t1 (18%1 : t0, 8%1  : t1)
 
-USER aleks   (296%110 : t1)
-USER alberto (182%55 : t1)
+USER aleks   (6%1 : t0, 6%1 : t1)
+USER alberto (6%1 : t0, 6%1 : t1)
 
 BEGIN
 
-EF   aleks.t0 = 2%1 && alberto.t0 = 2%1
+EF   aleks.t0 = 11%1 && aleks.t1 = 11%1
 
 END

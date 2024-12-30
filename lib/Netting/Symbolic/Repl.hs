@@ -44,7 +44,7 @@ repl = do
   case satResult of
       Nothing -> do {putStrLn "no solution found"; return ()}
       res@(Just (depth, model, txs)) -> do
-          putStrLn $ "Solution found at depth: " ++ (show depth)
+          putStrLn $ "Solution found at depth " ++ (show depth)
           model' <- model
           let ftpr0r1  = read_model stab'' txs model'
               model''  = zip ftpr0r1 txs
@@ -155,11 +155,9 @@ repl = do
                 putStrLn $ "No solution found at depth: " ++ (show k)
                 pure Nothing
             -- TODO: optimize to not run sat on this twice!
-            Just txs -> do 
-              putStrLn $ "found solution:" ++ show txs
-              pure . Just $ (check_sat buildQuery k txs, txs)
+            Just txs -> pure . Just $ (check_sat buildQuery k txs, txs)
     check_sat buildQuery k guess = do
-        putStrLn $ show guess
+        --putStrLn $ show guess
         writeFile "/tmp/check_goal.smt2" (case buildQuery guess k of {Left e -> error e; Right r -> r})
         (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
         case take 3 stdout of
