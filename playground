@@ -1,0 +1,12 @@
+TOKENS (t0, t1)
+
+AMM t0t1 (_ : t0, _ : t1)
+
+USER aleks   (_ : t0, _ : t1)
+
+BEGIN
+
+EF aleks.t0 < 0%1
+
+END
+1

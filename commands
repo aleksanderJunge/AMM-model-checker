@@ -1,0 +1,13 @@
+TOKENS (t0, t1, t2)
+
+AMM t0t1 (100 : t0, 100 : t1)
+AMM t1t2 (1000 : t1, 1000 : t2, 1%3 : fee)
+
+USER aleks   (10%1 : t0)
+
+BEGIN
+
+EU (aleks.t2 = 0%1) (aleks.t2 /= 0%1)
+
+END
+2
