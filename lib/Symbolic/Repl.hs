@@ -87,38 +87,27 @@ repl = do
         Just samm -> do
           case makeAmm samm stab of
             Left e -> do {putStrLn e; init_ stab stmts amms users}
-            Right (r, stab') -> do 
-                --putStrLn $ showStmts r
-                --putStrLn $ show stab'
-                init_ stab' (stmts ++ r) (samm : amms) users
+            Right (r, stab') -> init_ stab' (stmts ++ r) (samm : amms) users
         Nothing ->
             case TR.readMaybe line :: Maybe SUser of 
             Just user ->
                 case makeUser user stab of
                 Left e -> do {putStrLn e; init_ stab stmts amms users}
                 Right (r, stab') -> do 
-                    --putStrLn $ showStmts r 
                     init_ stab' (stmts ++ r) amms (user : users)
             Nothing -> do
-                --putStrLn $ "Didn't catch that"
                 init_ stab stmts amms users
 
     constrain stab acc = do
-      --putStr ">> "
-      --hFlush stdout
       line <- getLine
       case line of
         'I':'N':'I':'T':s -> 
           case parse stab s of
-            Right exp -> do 
-                --putStrLn "adding constraint:"
-                --putStrLn $ show (INIT exp)
-                constrain stab (acc ++ [INIT exp])
+            Right exp -> constrain stab (acc ++ [INIT exp])
             Left e    -> do {putStrLn e; constrain stab acc}
         'E':'F':s   ->
           case parse stab s of
-            Right exp -> do 
-                constrain stab (acc ++ [EF exp])
+            Right exp -> constrain stab (acc ++ [EF exp])
             Left e    -> do {putStrLn e; constrain stab acc}
         'E':'U':s   ->
           let (blank1, rest1) = readUntil '(' s
@@ -186,14 +175,10 @@ repl = do
 
     check_depth_and_max buildQuery queries to_maximize k guesses = do
         intervals <- mapM (\guess -> find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess) guesses
-        --let sat_queries' = filter (isJust . fst) (map (\(x,y,z) -> (y,z)) (filter fst3 intervals))
-        --    sat_queries = map (\(x,y) -> (fromJust x, y)) sat_queries'
-        --    max_val     = foldl max 0 (map (snd . fst) sat_queries )
         let max_val'    = foldl max (Just 0) (map (liftM fst . snd3) (filter fst3 intervals)) -- lower bound more important than upper bound, thus selecting max lo
         if null max_val' then pure Nothing else 
           let max_val = fromJust max_val'
               max_index = findIndex (\(_, lh, _) -> if isJust lh then (fst $ fromJust lh) == max_val else False) intervals
-              --max_indices = (find (\((lo, hi), out) -> hi == max_val) sat_queries, findIndex (\((lo, hi), out) -> hi == max_val) sat_queries)
           in case max_index of 
             (Just i) -> 
               let ((lo,hi), out) = (\(b, lh, out) -> (fromJust lh, out)) (intervals !! i)
@@ -204,7 +189,6 @@ repl = do
             | lo / hi >= 0.99 = do
                 let maxQuery = MAX to_maximize (LReal . toRational $ lo)
                 res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
-                --(True, (lo, hi), )
                 case res of 
                   (True, Just maxval, out) -> pure (True, Just (maxval, hi), out)
                   (_, _, out) -> do -- Try again, as 'lo' might actually have been the max value, in which case exp_to_max > lo -> unsat

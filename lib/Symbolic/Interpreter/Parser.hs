@@ -140,7 +140,6 @@ instance Read SToks where
     readsPrec _ _ = []
 
 instance Read UnOp where
-    -- readsPrec _ ('f':'e':'e':[]) = [(Fee, "")]
     readsPrec _ ('n':'o':'t':[]) = [(Not, "")]
     readsPrec _ _ = []
 
