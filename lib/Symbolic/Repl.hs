@@ -186,13 +186,19 @@ repl = do
 
     check_depth_and_max buildQuery queries to_maximize k guesses = do
         intervals <- mapM (\guess -> find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess) guesses
-        let sat_queries' = filter (isJust . fst) (map (\(x,y,z) -> (y,z)) (filter fst3 intervals))
-            sat_queries = map (\(x,y) -> (fromJust x, y)) sat_queries'
-            max_val     = foldl max 0 (map (snd . fst) sat_queries )
-            max_indices = (find (\((lo, hi), out) -> hi == max_val) sat_queries, findIndex (\((lo, hi), out) -> hi == max_val) sat_queries)
-        case max_indices of 
-          (Just ((lo, hi), out), Just i) -> pure $ Just ((lo, hi), out, guesses !! i)
-          _ -> pure Nothing
+        --let sat_queries' = filter (isJust . fst) (map (\(x,y,z) -> (y,z)) (filter fst3 intervals))
+        --    sat_queries = map (\(x,y) -> (fromJust x, y)) sat_queries'
+        --    max_val     = foldl max 0 (map (snd . fst) sat_queries )
+        let max_val'    = foldl max (Just 0) (map (liftM fst . snd3) (filter fst3 intervals)) -- lower bound more important than upper bound, thus selecting max lo
+        if null max_val' then pure Nothing else 
+          let max_val = fromJust max_val'
+              max_index = findIndex (\(_, lh, _) -> if isJust lh then (fst $ fromJust lh) == max_val else False) intervals
+              --max_indices = (find (\((lo, hi), out) -> hi == max_val) sat_queries, findIndex (\((lo, hi), out) -> hi == max_val) sat_queries)
+          in case max_index of 
+            (Just i) -> 
+              let ((lo,hi), out) = (\(b, lh, out) -> (fromJust lh, out)) (intervals !! i)
+              in pure $ Just ((lo,hi), out, guesses !! i)
+            _ -> pure Nothing
         where 
           find_interval buildQuery queries to_maximize k (Just lo, Just hi) guess -- TODO: consider rearranging params so (lo,hi) at back, and partially apply rest
             | lo / hi >= 0.99 = do
@@ -201,7 +207,13 @@ repl = do
                 --(True, (lo, hi), )
                 case res of 
                   (True, Just maxval, out) -> pure (True, Just (maxval, hi), out)
-                  (_, _, out) -> pure (False, Nothing, out)
+                  (_, _, out) -> do -- Try again, as 'lo' might actually have been the max value, in which case exp_to_max > lo -> unsat
+                    let maxQuery' = MAX to_maximize (LReal . toRational $ lo - 1 / 1e30) -- subtract small number
+                    res' <- check_sat_and_max (buildQuery (maxQuery' : queries)) k guess 
+                    case res' of 
+                      (True, Just maxval, out) -> pure (True, Just (maxval, maxval), out) -- should be maxval exactly in this case
+                      (_, _, out) -> pure (False, Nothing, out) -- Otherwise Just fail TODO: find better solution / informative message here
+                    
             | otherwise = do
                 let mid      = toRational $ lo + (hi - lo)/2
                     maxQuery = MAX to_maximize (LReal mid)
