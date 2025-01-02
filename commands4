@@ -10,5 +10,6 @@ USER aleks   (6%1 : t0, 6%1 : t1, 6%1 : t2)
 BEGIN
 
 EF   aleks.t0 + aleks.t1 + aleks.t2 > 23%1
+MAX aleks.t0 + aleks.t1 + aleks.t2
 
 END

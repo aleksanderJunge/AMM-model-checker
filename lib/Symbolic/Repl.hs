@@ -119,8 +119,6 @@ repl = do
         'E':'F':s   ->
           case parse stab s of
             Right exp -> do 
-                --putStrLn "adding constraint:"
-                --putStrLn $ show (EF exp)
                 constrain stab (acc ++ [EF exp])
             Left e    -> do {putStrLn e; constrain stab acc}
         'E':'U':s   ->
@@ -137,6 +135,15 @@ repl = do
                     constrain stab (acc ++ [EU exp1 exp2])
                   Left e -> do {putStrLn e; constrain stab acc}
               Left e    -> do {putStrLn e; constrain stab acc}
+        'M':'A':'X':s -> 
+          case parse stab s of
+            Right exp -> do 
+              case get stab "exp_to_maximize" of
+                Just _  -> do {putStrLn "error: the name exp_to_maximize already exists in symtab!"; constrain stab acc}
+                Nothing -> do
+                  let stab' = bind stab ("exp_to_maximize", Symval)
+                  constrain stab' (acc ++ [MAX exp (LReal 0)])
+            Left e    -> do {putStrLn e; constrain stab acc}
         'E':'N':'D':s -> return acc
         _        -> constrain stab acc
 

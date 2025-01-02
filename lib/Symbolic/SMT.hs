@@ -15,7 +15,7 @@ import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
 
-data Query = EU Expr Expr | EF Expr | INIT Expr
+data Query = EU Expr Expr | EF Expr | INIT Expr | MAX Expr Expr
   deriving (Show) --TODO: remove this
 
 type Symtable = Env String SType
@@ -25,12 +25,14 @@ type TxGuess = (String, String, String)
 type TxSeqGuess = [TxGuess]
 
 buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> Bool -> Symtable -> [String] -> [Query] -> TxSeqGuess -> Int -> Either String String
-buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "No AMMS"
-buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "No Users"
+buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "Missing AMMS"
+buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "Missing Users"
+--buildSMTQuery (_, _, _) _ _ _ [] _ _ = Left "Missing Query"
 buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms
         swappingUsers = usersToUse guess susers toks
+        max_query     = catMaybes $ map (\case MAX exp pmax -> Just (exp, pmax); _ -> Nothing) queries
         --stab'        = createSymvals samms stab k
     in Right $
     unlines ["(set-logic QF_NRA)"]
@@ -40,10 +42,11 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     ++ unlines (map show assertions)
     ++ posBalAssertion susers toks k
     ++ (chain swappingAmms swappingUsers useFee)
-    ++ unlines (map (show . decorateWithDepth 0) [ exp | INIT exp <- queries])
-    ++ unlines (map (show . decorateWithDepth k) [ exp | EF exp <- queries])
-    ++ unlines (concat $ map (\(i, exps) -> map (show . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
-    ++ unlines (map (show . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
+    ++ unlines (map (show . Assert . decorateWithDepth 0) [ exp | INIT exp <- queries])
+    ++ unlines (map (show . Assert . decorateWithDepth k) [ exp | EF exp <- queries])
+    ++ unlines (concat $ map (\(i, exps) -> map (show . Assert . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
+    ++ unlines (map (show . Assert . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
+    ++ (case listToMaybe max_query of Just (tm, pm) -> buildMaxExp (decorateWithDepth k tm) (decorateWithDepth k pm); _ -> [])
     ++ unlines ["(check-sat)"]
     ++ unlines ["(get-model)"]
     -- ++ (unlines $ map (\i -> "(get-value (from_" ++ i ++ "))" 
@@ -81,15 +84,23 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
                                                 i <- [show k]]
                 in go guesses amms (k + 1) (acc ++ [(feeName, fromVar, toVar, remNames)])
 
+buildMaxExp :: Expr -> Expr -> String
+buildMaxExp exp prev_max =
+  let var_name = "exp_to_maximize"
+  in unlines $ (map show [DeclVar var_name TReal]) ++ map show
+    [ Assert $ eq (Var var_name) exp
+    , Assert $ gt (Var var_name) prev_max
+    ]
   
 -- this could be somewhat limiting in the sense that there's no way to compare variables across different time steps in the query language
-decorateWithDepth :: Int -> Expr -> Assert
+decorateWithDepth :: Int -> Expr -> Expr
 decorateWithDepth k exp =
-  Assert $ decorate exp k 
+  decorate exp k 
   where 
     decorate :: Expr -> Int -> Expr
     decorate (Var n) k 
-      | take 4 n == "fee_"  = Var n --fee remains unchanged, TODO: use symtab to do this instead of string checking
+      | take 4 n  == "fee_"  = Var n --fee & maxexp remains unchanged, TODO: use symtab to do this instead of string checking
+      | take 15 n == "exp_to_maximize" = Var n
       | otherwise           = Var $ n +@ show k
     decorate (LReal r) k = LReal r
     decorate (LBool b) k = LBool b
