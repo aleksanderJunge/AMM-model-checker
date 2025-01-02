@@ -1,5 +1,8 @@
 module Symbolic.Utils where 
 
+import Data.Char
+import Text.Read
+
 readUntil :: Char -> String -> (String, String)
 readUntil c input = 
     case span (/= c) input of
@@ -16,3 +19,16 @@ readTokUntil c input =
 
 (+@) :: String -> String -> String
 s +@ s' = s ++ "_" ++ s'
+
+stringToRational :: String -> Maybe Rational
+stringToRational s =
+    go s [] 1
+    where 
+        go (i:[]) acc ctr | isNumber i  = readMaybe (acc ++ [i] ++ "%" ++ (show ctr)) :: Maybe Rational
+        -- below line is a bit ugly, but we need to not care about '?' as z3 uses this when rounding
+        go (i:s) acc ctr  | i == '?'    = readMaybe (acc ++        "%" ++ (show ctr)) :: Maybe Rational
+        go (i:s) acc ctr  | isNumber i && ctr >  1 = go s (acc ++ [i]) (ctr * 10)
+        go (i:s) acc ctr  | isNumber i && ctr == 1 = go s (acc ++ [i]) ctr
+        go ('.':s) acc ctr = go s acc (ctr * 10)
+        go (i:s) acc ctr  | not (isNumber i) = Nothing
+        go _ acc _ = Nothing

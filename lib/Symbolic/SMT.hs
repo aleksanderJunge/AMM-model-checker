@@ -32,7 +32,7 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms
         swappingUsers = usersToUse guess susers toks
-        max_query     = catMaybes $ map (\case MAX exp pmax -> Just (exp, pmax); _ -> Nothing) queries
+        max_query     = catMaybes $ map (\case MAX exp gtval -> Just (exp, gtval); _ -> Nothing) queries
         --stab'        = createSymvals samms stab k
     in Right $
     unlines ["(set-logic QF_NRA)"]
@@ -46,7 +46,7 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     ++ unlines (map (show . Assert . decorateWithDepth k) [ exp | EF exp <- queries])
     ++ unlines (concat $ map (\(i, exps) -> map (show . Assert . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
     ++ unlines (map (show . Assert . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
-    ++ (case listToMaybe max_query of Just (tm, pm) -> buildMaxExp (decorateWithDepth k tm) (decorateWithDepth k pm); _ -> [])
+    ++ (case listToMaybe max_query of Just (tm, gv) -> buildMaxExp (decorateWithDepth k tm) (decorateWithDepth k gv); _ -> [])
     ++ unlines ["(check-sat)"]
     ++ unlines ["(get-model)"]
     -- ++ (unlines $ map (\i -> "(get-value (from_" ++ i ++ "))" 
@@ -85,11 +85,11 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
                 in go guesses amms (k + 1) (acc ++ [(feeName, fromVar, toVar, remNames)])
 
 buildMaxExp :: Expr -> Expr -> String
-buildMaxExp exp prev_max =
+buildMaxExp exp gt_val =
   let var_name = "exp_to_maximize"
   in unlines $ (map show [DeclVar var_name TReal]) ++ map show
     [ Assert $ eq (Var var_name) exp
-    , Assert $ gt (Var var_name) prev_max
+    , Assert $ gt (Var var_name) gt_val
     ]
   
 -- this could be somewhat limiting in the sense that there's no way to compare variables across different time steps in the query language

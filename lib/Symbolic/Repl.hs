@@ -11,6 +11,7 @@ import Data.Maybe
 import Data.Char
 import Data.List
 import Data.Either
+import Data.Tuple.Extra
 import Data.Either.Extra
 import qualified Data.Map as M
 import qualified GHC.Utils.Misc as Util
@@ -24,35 +25,33 @@ import Debug.Trace
 repl :: IO ()
 repl = do
   let symtab = empty :: Env String SType
-  --putStrLn "Declare tokens"
   (stab', toknames) <- toks_ symtab 
-  --putStrLn "Define initial state"
   depth <- getDepth
   (stab'', stmts, amms, users) <- init_ stab' [] [] []
   let useFee      = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
       defaultFees = if useFee then setDefaultFees amms [] else []
- -- case collectUsers stab'' 0 of
- --   Left e -> putStrLn "you probably defined a variable called users0, it's reserved... start over"
- --   Right (users0, stab''') -> do
-  --putStrLn "initial state looks like:"
-  --putStrLn $ showStmts (stmts ++ users0)
-  --putStrLn "Set constraints"
   (constraints) <- constrain stab'' []
-  ----putStrLn "How deep to check?"
   let combs  =  getCombinations useFee (amms, users) depth
-  satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
-  case satResult of
-      Nothing -> do {putStrLn "no solution found"; return ()}
-      res@(Just (depth, model, txs)) -> do
-          putStrLn $ "Solution found at depth " ++ (show depth)
-          model' <- model
-          let ftpr0r1  = read_model stab'' txs model'
-              model''  = zip ftpr0r1 txs
-              to_print = map print_txn model''
-              amms     = pair_amms_tx stab'' txs
+      to_maximize = find (\case MAX exp _ -> True; _ -> False) constraints
+  case to_maximize of 
+    Just (MAX exp _) -> do
+      let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
+      check_and_max stab'' (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
+      return ()
+    _ -> do
+        satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
+        case satResult of
+            Nothing -> do {putStrLn "no solution found"; return ()}
+            res@(Just (depth, model, txs)) -> do
+                putStrLn $ "Solution found at depth " ++ (show depth)
+                model' <- model
+                let ftpr0r1  = read_model stab'' txs model'
+                    model''  = zip ftpr0r1 txs
+                    to_print = map print_txn model''
+                    amms     = pair_amms_tx stab'' txs
 
-          mapM putStrLn to_print
-          return ()
+                mapM putStrLn to_print
+                return ()
                 --repl 
   where
     toks_ stab = do
@@ -153,23 +152,96 @@ repl = do
         res <- check_at_depth buildQuery k guess
         case res of 
             Nothing  -> check buildQuery ks guesses
-            Just (out, txs) -> do 
-              pure $ Just (k, liftM snd out, txs)
+            Just (out, txs) -> pure $ Just (k, liftM snd out, txs)
     check_at_depth buildQuery k guesses = do
-        txRes <- findM (\x -> liftM (not . fst) $ check_sat buildQuery k x) guesses
+        txRes <- findM (\x -> liftM fst $ check_sat buildQuery k x) guesses
         case txRes of 
             Nothing -> do 
                 putStrLn $ "No solution found at depth: " ++ (show k)
                 pure Nothing
-            -- TODO: optimize to not run sat on this twice!
-            Just txs -> pure . Just $ (check_sat buildQuery k txs, txs)
+            Just txs -> pure . Just $ (check_sat buildQuery k txs, txs) -- TODO: optimize to not run sat on this twice!
     check_sat buildQuery k guess = do
-        --putStrLn $ show guess
         writeFile "/tmp/check_goal.smt2" (case buildQuery guess k of {Left e -> error e; Right r -> r})
         (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
         case take 3 stdout of
-            "sat"     -> pure (False, stdout)
-            otherwise -> pure (True, stderr)
+            "sat"     -> pure (True, stdout)
+            otherwise -> pure (False, stderr)
+
+    check_and_max stab buildQuery queries to_maximize [] guesses = pure Nothing
+    check_and_max stab buildQuery queries to_maximize ks []      = pure Nothing 
+    check_and_max stab buildQuery queries to_maximize (k:ks) (guess:guesses) = do
+        res <- check_depth_and_max buildQuery queries to_maximize k guess
+        case res of 
+            Nothing  -> do 
+              putStrLn $ "No solution found at depth " ++ (show k)
+              check_and_max stab buildQuery queries to_maximize ks guesses
+            Just ((lo,hi), out, txs) -> do
+              putStrLn $ "Solution found at depth " ++ (show k) ++ " with max value in interval:\n[" ++ (show lo) ++ "; " ++ (show hi) ++ "]"
+              let ftpr0r1  = read_model stab txs out
+                  model'  = zip ftpr0r1 txs
+                  to_print = map print_txn model'
+                  amms     = pair_amms_tx stab txs
+              mapM putStrLn to_print
+              check_and_max stab buildQuery queries to_maximize ks guesses
+
+    check_depth_and_max buildQuery queries to_maximize k guesses = do
+        intervals <- mapM (\guess -> find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess) guesses
+        let sat_queries' = filter (isJust . fst) (map (\(x,y,z) -> (y,z)) (filter fst3 intervals))
+            sat_queries = map (\(x,y) -> (fromJust x, y)) sat_queries'
+            max_val     = foldl max 0 (map (snd . fst) sat_queries )
+            max_indices = (find (\((lo, hi), out) -> hi == max_val) sat_queries, findIndex (\((lo, hi), out) -> hi == max_val) sat_queries)
+        case max_indices of 
+          (Just ((lo, hi), out), Just i) -> pure $ Just ((lo, hi), out, guesses !! i)
+          _ -> pure Nothing
+        where 
+          find_interval buildQuery queries to_maximize k (Just lo, Just hi) guess -- TODO: consider rearranging params so (lo,hi) at back, and partially apply rest
+            | lo / hi >= 0.99 = do
+                let maxQuery = MAX to_maximize (LReal . toRational $ lo)
+                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
+                --(True, (lo, hi), )
+                case res of 
+                  (True, Just maxval, out) -> pure (True, Just (maxval, hi), out)
+                  (_, _, out) -> pure (False, Nothing, out)
+            | otherwise = do
+                let mid      = toRational $ lo + (hi - lo)/2
+                    maxQuery = MAX to_maximize (LReal mid)
+                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
+                case res of
+                  (True, Just maxval, out) -> find_interval buildQuery queries to_maximize k (Just mid, Just hi) guess --upper half
+                  _ -> find_interval buildQuery queries to_maximize k (Just lo, Just mid) guess --lower half
+                    
+          find_interval buildQuery queries to_maximize k (Just lo, Nothing) guess = do
+                let hi      = lo * 2
+                    maxQuery = MAX to_maximize (LReal hi)
+                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
+                case res of
+                  (True, Just maxval, out) -> find_interval buildQuery queries to_maximize k (Just hi, Nothing) guess
+                  _ -> find_interval buildQuery queries to_maximize k (Just lo, Just hi) guess
+            
+          find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess = do
+            let maxQuery = MAX to_maximize (LReal 0)
+            res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
+            case res of
+              (True, Just maxval, out) ->
+                find_interval buildQuery queries to_maximize k (Just maxval, Nothing) guess
+              (_, _, out) -> pure (False, Nothing, out)
+
+
+    check_sat_and_max buildQuery k guess = do
+        --putStrLn $ "checking " ++ (show guess)
+        writeFile "/tmp/check_goal.smt2" (case buildQuery guess k of {Left e -> error e; Right r -> r})
+        (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
+        case take 3 stdout of
+            "sat"     -> do 
+              let pairs  = toTerms stdout
+                  pairs' = filter (\(f, s) -> not $ null f || null s) pairs
+                  maxval = listToMaybe . map snd $ filter (\(f, s)-> (take 15 f) == "exp_to_maximize") pairs'
+              case stringToRational <$> maxval of
+                Just r  -> pure (True, r, stdout)
+                -- TODO: remove this trace
+                Nothing -> trace "error: couldn't read exp_to_maximize as a rational!" pure (False, Nothing, stderr)
+            otherwise -> pure (False, Nothing, stderr)
+
     pair_amms_tx stab txns = 
       let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
           pairs = map (\(_, t0, t1) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
@@ -183,11 +255,9 @@ repl = do
       in return withdir
     
     read_model stab txs model =
-      let --terms   = toTerms model
-          --tabled  = map (span (\c -> isAlphaNum c || c == '_')) terms
-          pairs  = toTerms model
+      let pairs  = toTerms model
           pairs' = filter (\(f, s) -> not $ null f || null s) pairs
-          from    = map snd . sort $ (filter (\(f, s)-> (take 4 f) == "from") pairs') -- TODO: sort these !!!!! and below
+          from    = map snd . sort $ (filter (\(f, s)-> (take 4 f) == "from") pairs')
           to      = map snd . sort $ (filter (\(f, s)-> (take 2 f) == "to") pairs')
           payout  = map snd . sort $ (filter (\(f, s)-> (take 6 f) == "payout") pairs')
           (r0s, r1s) = unzip $ fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
