@@ -1,10 +1,10 @@
 {-# LANGUAGE LambdaCase #-}
-module Netting.Symbolic.SMT where
+module Symbolic.SMT where
 
-import Netting.Symbolic.Interpreter.Parser
-import Netting.Symbolic.Interpreter.SymTab
-import Netting.Symbolic.Sem
-import Netting.Symbolic.Utils
+import Symbolic.Interpreter.Parser
+import Symbolic.Interpreter.SymTab
+import Symbolic.Sem
+import Symbolic.Utils
 import Data.Maybe
 import Data.List
 import Data.Either

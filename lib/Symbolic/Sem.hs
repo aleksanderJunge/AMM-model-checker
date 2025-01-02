@@ -1,8 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Netting.Symbolic.Sem where
+module Symbolic.Sem where
 
-import Netting.Symbolic.Utils
+import Symbolic.Utils
 
 import Text.Read
 import Data.List.Extra

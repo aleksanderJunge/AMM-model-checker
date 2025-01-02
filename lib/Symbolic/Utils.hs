@@ -1,4 +1,4 @@
-module Netting.Symbolic.Utils where 
+module Symbolic.Utils where 
 
 readUntil :: Char -> String -> (String, String)
 readUntil c input = 

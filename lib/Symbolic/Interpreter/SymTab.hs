@@ -1,4 +1,4 @@
-module Netting.Symbolic.Interpreter.SymTab where
+module Symbolic.Interpreter.SymTab where
 
 import Data.Maybe
 import Data.Function

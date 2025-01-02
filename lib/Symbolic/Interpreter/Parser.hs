@@ -1,11 +1,9 @@
-module Netting.Symbolic.Interpreter.Parser where
+module Symbolic.Interpreter.Parser where
 
 import Data.Maybe
-import Netting.Sem
-import Netting.AmmFuns
-import Netting.Symbolic.Sem
-import Netting.Symbolic.Utils
-import Netting.Symbolic.Interpreter.SymTab
+import Symbolic.Sem
+import Symbolic.Utils
+import Symbolic.Interpreter.SymTab
 import Data.List.Split
 import Data.List
 import qualified Data.Map as M

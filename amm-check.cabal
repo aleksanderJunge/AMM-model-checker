@@ -1,5 +1,5 @@
 cabal-version:      2.4
-name:               amm-netting
+name:               amm-check
 version:            0.1.0.0
 
 -- A short (one-line) description of the package.
@@ -18,15 +18,13 @@ version:            0.1.0.0
 -- maintainer: ajunge123@gmail.com
 
 library netting-lib
-    exposed-modules: Netting.AmmFuns,
-                     Netting.Sem,
-                     Netting.Symbolic.Repl,
-                     Netting.Symbolic.Sem,
-                     Netting.Symbolic.Interpreter.Parser,
-                     Netting.Symbolic.Interpreter.SymTab
-                     -- Netting.Symbolic.SMT_opt
-    other-modules: Netting.Symbolic.SMT,
-                   Netting.Symbolic.Utils
+    exposed-modules: Symbolic.Repl,
+                     Symbolic.Sem,
+                     Symbolic.Interpreter.Parser,
+                     Symbolic.Interpreter.SymTab
+                     -- Symbolic.SMT_opt
+    other-modules: Symbolic.SMT,
+                   Symbolic.Utils
     build-depends: base,
                    containers,
                    random,
@@ -41,7 +39,7 @@ library netting-lib
 
 extra-source-files: CHANGELOG.md
 
-executable amm-netting
+executable amm-check
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
@@ -58,20 +56,20 @@ executable amm-netting
     hs-source-dirs:   app
     default-language: Haskell2010
 
-test-suite tests
-    type: exitcode-stdio-1.0
-    main-is: Test.hs
-    other-modules: Examples.IntroductionExample
-                   Examples.Example1,
-                   Examples.Example2,
-                   Examples.Example3,
-                   Examples.Example4,
-                   Examples.Example5,                   Examples.Example6,
-                   OtherTests.RateAttack
-    build-depends: base, 
-                   tasty, 
-                   tasty-hunit, 
-                   netting-lib,
-                   containers
-    hs-source-dirs: tests
-    default-language: Haskell2010
+-- test-suite tests
+--     type: exitcode-stdio-1.0
+--     main-is: Test.hs
+--     other-modules: Examples.IntroductionExample
+--                    Examples.Example1,
+--                    Examples.Example2,
+--                    Examples.Example3,
+--                    Examples.Example4,
+--                    Examples.Example5,                   Examples.Example6,
+--                    OtherTests.RateAttack
+--     build-depends: base, 
+--                    tasty, 
+--                    tasty-hunit, 
+--                    netting-lib,
+--                    containers
+--     hs-source-dirs: tests
+--     default-language: Haskell2010

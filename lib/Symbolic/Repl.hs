@@ -1,12 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 
-module Netting.Symbolic.Repl where
+module Symbolic.Repl where
 
-import Netting.Symbolic.Interpreter.Parser
-import Netting.Symbolic.Interpreter.SymTab
-import Netting.Symbolic.Sem
-import Netting.Symbolic.SMT
-import Netting.Symbolic.Utils
+import Symbolic.Interpreter.Parser
+import Symbolic.Interpreter.SymTab
+import Symbolic.Sem
+import Symbolic.SMT
+import Symbolic.Utils
 import Data.Maybe
 import Data.Char
 import Data.List

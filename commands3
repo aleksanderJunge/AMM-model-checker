@@ -1,15 +1,15 @@
 TOKENS (t0, t1, t2, t3, t4)
-DEPTH 5
+DEPTH 4
 
 AMM t0t1 (100%1 : t0, 100%1  : t1)
 AMM t1t2 (100%1 : t1, 100%1  : t2)
-AMM t2t3 (100%1 : t2, 100%1  : t3, _ : fee)
+AMM t2t3 (100%1 : t2, 100%1  : t3)
 AMM t3t4 (100%1 : t3, 100%1  : t4)
 
 USER aleks (100%1 : t0)
 
 BEGIN
 
-EU   (t2t3.t2 >= t2t3.t3) (aleks.t0 + aleks.t1 + aleks.t2 + aleks.t3 = 0%1 && t2t3.fee < 1%2)
+EF   aleks.t0 + aleks.t1 + aleks.t2 + aleks.t3 = 0%1
 
 END
