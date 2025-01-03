@@ -1,3 +1,0 @@
-NOTES:
-- consider second param of txns, whether constraint makes sense if it's jsut 0
-- allow for transactions with 0 as input? (semantics do)
