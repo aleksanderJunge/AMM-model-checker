@@ -300,10 +300,16 @@ repl = do
           in (take (length s - 1) s) ++ (show $ time - 1)
 
     print_txn ((f,t,p, (r0p, r0c), (r1p, r1c)),(TxCon sender t0 t1 _ _)) = 
+      let t' = stringToRational t
+          p' = stringToRational p
+          was_rejected = p' < t'
+      in
       unlines $ 
-      [ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
-      --[ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
-      , sender ++ ": <--- receives(" ++ p ++ " : " ++ t1 ++ ") --- (" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")"
+      [ --sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
+        sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
+      , if was_rejected && (not . null) t' && (not . null) p' then 
+        sender ++ ": transaction REJECTED! as " ++ t ++ " > " ++ p else -- ++ " ("++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")" else 
+        sender ++ ": <--- receives(" ++ p ++ " : " ++ t1 ++ ") --- (" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")"
       ]
       --sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
   
