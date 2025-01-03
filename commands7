@@ -1,0 +1,16 @@
+TOKENS (t0, t1)
+DEPTH 3
+
+AMM t0t1 (13%1 : t0, 11%1 : t1)
+
+USER aleks   (6%1 : t0, 6%1 : t1)
+USER alberto (6%1 : t0, 6%1 : t1)
+
+AVAILABLE (alberto, 6%1 : t0, 4%1 : t1)
+FREE (aleks)
+
+BEGIN
+
+MAX aleks.t0 + aleks.t1
+
+END

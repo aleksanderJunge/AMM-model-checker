@@ -165,6 +165,17 @@ data SType = DTok | DAmm String String | DUser | Symval | Concval deriving (Eq, 
 
 data TFee r = Conc r | Sym | None deriving (Show, Eq)
 
+data TxCon = TxCon 
+    { txSender :: String
+    , txFromT  :: String
+    , txToT    :: String 
+    , txFromV  :: (Maybe Rational)
+    , txToV    :: (Maybe Rational)
+    }
+    deriving (Show, Eq, Ord)
+
+data TxFree = TxFree [String] deriving (Show, Eq)
+
 -- we only provide input for t, v, and wallet if those are to be "named" and constrained, otherwise leave unconstrained
 data SAMM = SAMM
     { ammName :: String

@@ -2,6 +2,7 @@ module Symbolic.Utils where
 
 import Data.Char
 import Text.Read
+import Debug.Trace
 
 readUntil :: Char -> String -> (String, String)
 readUntil c input = 
@@ -25,10 +26,8 @@ stringToRational s =
     go s [] 1
     where 
         go (i:[]) acc ctr | isNumber i  = readMaybe (acc ++ [i] ++ "%" ++ (show ctr)) :: Maybe Rational
-        -- below line is a bit ugly, but we need to not care about '?' as z3 uses this when rounding
-        go (i:s) acc ctr  | i == '?'    = readMaybe (acc ++        "%" ++ (show ctr)) :: Maybe Rational
-        go (i:s) acc ctr  | isNumber i && ctr >  1 = go s (acc ++ [i]) (ctr * 10)
+        go (i:s) acc ctr  | isNumber i && ctr >  1 = if (take 1 s) == "?" then readMaybe (acc ++ [i] ++ "%" ++ (show ctr)) :: Maybe Rational else go s (acc ++ [i]) (ctr * 10)
         go (i:s) acc ctr  | isNumber i && ctr == 1 = go s (acc ++ [i]) ctr
         go ('.':s) acc ctr = go s acc (ctr * 10)
-        go (i:s) acc ctr  | not (isNumber i) = Nothing
+        go (i:s) acc ctr  | not (isNumber i) =  Nothing
         go _ acc _ = Nothing

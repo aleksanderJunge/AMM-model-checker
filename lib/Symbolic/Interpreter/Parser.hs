@@ -134,9 +134,21 @@ instance Read SToks where
         let toks'  = Util.split ',' toks
             toks'' = map (filter (\c -> c /= ' ')) toks'
         in 
-            if (any (\x -> ((> 1) . length) $ words x) toks') then [] else 
-            if any (\s -> null s || all (\c -> c == ' ') s) toks'' then [] else
+            if (any (\x -> ((> 1) . length) $ words x) toks') ||
+                any (\s -> null s || all (\c -> c == ' ') s) toks'' then [] else
         [(SToks $ toks'', rest)]
+    readsPrec _ _ = []
+
+instance Read TxFree where
+    readsPrec _ ('F':'R':'E':'E':input) = 
+        let (blank, rest1) = readUntil '(' input in if blank == "!" then [] else
+        let (users, rest) = readUntil ')' rest1 in if users == "!" then [] else
+        let users'  = Util.split ',' users
+            users'' = map (filter (\c -> c /= ' ')) users'
+        in 
+            if (any (\x -> ((> 1) . length) $ words x) users') ||
+                any (\s -> null s || all (\c -> c == ' ') s) users'' then [] else
+        [(TxFree $ users'', rest)]
     readsPrec _ _ = []
 
 instance Read UnOp where
@@ -157,6 +169,33 @@ instance Read BinOp where
     readsPrec _ ('/':'=':[]) = [(Distinct, "")]
     readsPrec _ ('=':'>':[]) = [(Implies, "")]
     readsPrec _ _ = []
+
+instance Read TxCon where
+    readsPrec _ input =
+      let (blank, rest1) = readUntil '(' input in if blank == "!" then [] else
+      let (name, rest2) = readTokUntil ',' rest1 in if name == "!" then [] else
+      let (v0,   rest3) = readTokUntil ':' rest2 in if v0   == "!" then [] else
+      let (t0,   rest4) = readTokUntil ',' rest3 in if t0   == "!" then [] else
+      let (v1,   rest5) = readTokUntil ':' rest4 in if v1   == "!" then [] else
+      let (t1,   rest6) = readTokUntil ')' rest5 in if t1   == "!" then [] else
+      if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
+                           && all (all isAlphaNum) [t0, t1]
+                           && all isRatio [v0, v1]
+      then [(TxCon name t0 t1 (toVal v0) (toVal v1), rest6)] else []
+      where
+          isRatio "" = False
+          isRatio r  = 
+              if all ((==) '_') r then True else
+              if all isNumber r then True else  --parse to Int then Rational
+              case Util.split '%' r of 
+                  (num:den:[]) | all isNumber num && all isNumber den -> True
+                  _ -> False
+          toVal  "_" = Nothing
+          toVal  v   = 
+            case readMaybe v :: Maybe Int of
+              Just i -> Just $ toRational i
+              Nothing -> readMaybe v :: Maybe Rational
+
 
 instance Read SAMM where
     readsPrec _ ('A':'M':'M':input) = 

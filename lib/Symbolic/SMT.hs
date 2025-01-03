@@ -14,6 +14,7 @@ import qualified Data.Set as S
 import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
+import Debug.Trace
 
 data Query = EU Expr Expr | EF Expr | INIT Expr | MAX Expr Expr
   deriving (Show) --TODO: remove this
@@ -24,7 +25,7 @@ type TxGuess = (String, String, String)
 
 type TxSeqGuess = [TxGuess]
 
-buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> Bool -> Symtable -> [String] -> [Query] -> TxSeqGuess -> Int -> Either String String
+buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> Bool -> Symtable -> [String] -> [Query] -> [TxCon] -> Int -> Either String String
 buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "Missing AMMS"
 buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "Missing Users"
 --buildSMTQuery (_, _, _) _ _ _ [] _ _ = Left "Missing Query"
@@ -49,29 +50,24 @@ buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
     ++ (case listToMaybe max_query of Just (tm, gv) -> buildMaxExp (decorateWithDepth k tm) (decorateWithDepth k gv); _ -> [])
     ++ unlines ["(check-sat)"]
     ++ unlines ["(get-model)"]
-    -- ++ (unlines $ map (\i -> "(get-value (from_" ++ i ++ "))" 
-    --                       ++ "(get-value (to_" ++ i ++"))"
-    --                       ++ "(get-value (payout_" ++ i ++ "))") $ show <$> [1..k])
-    -- ++ showStmts (stmts ++ symdecls)
-    -- ++ (chain guess swappingAmms k)
-    -- ++ unlines (getSymVals stab')
+    -- ++ unlines (getSymVals stab') TODO: add this to print symbolic varaiables at the end again!
     where
       usersToUse guesses users toks =
         go guesses users toks 1 [] 
         where 
           go [] users toks k acc = acc  -- TODO: check if we need any sort of guard on this statement
-          go ((usr, t0, t1) : guesses) users toks k acc =
+          go ((TxCon usr t0 t1 v0 v1) : guesses) users toks k acc =
             let remUsers        = map name (filter (\u -> (name u) /= usr) users)
                 unchangedCombs  = [(n +@ t +@ i)| n <- remUsers, t <- toks, i <- [show k]] ++ 
                                   [(n +@ t +@ i)| n <- [usr], t <- (toks \\ [t0, t1]), i <- [show k]]
                 from = (usr +@ t0 +@ (show k))
                 to   = (usr +@ t1 +@ (show k))
-            in go guesses users toks (k + 1) (acc ++ [(from, to, unchangedCombs)])
-      ammsToUse guesses amms = 
+            in go guesses users toks (k + 1) (acc ++ [(from, to, v0, v1, unchangedCombs)])
+      ammsToUse guesses amms =
         go guesses amms 1 []
         where
           go [] amms k acc = acc
-          go ((_, t0, t1):guesses) amms k acc =
+          go ((TxCon _ t0 t1 _ _):guesses) amms k acc =
             case find (\(SAMM _ r0' r1' _) -> ((snd $ r0') == t0 && (snd $ r1') == t1) || 
                                               ((snd $ r0') == t1 && (snd $ r1') == t0)) amms of
               Nothing -> error "no amm on this token pair" -- TODO: handle better
@@ -114,14 +110,46 @@ getSymVals stab =
   let vals = map fst (filter (\(k,v) -> v == Symval) (M.toList stab))
   in map (\s -> "(get-value (" ++ s ++ "))") vals
 
-getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[TxSeqGuess]]
+-- The new parameter contains a tuple (Req, Avail, Free) where first two elements are transactions that are req/avail and third elem is names of users who are free to transact
+getCombinations' :: Bool -> ([SAMM], [SUser]) -> Maybe ([TxCon], [TxCon], [String]) -> Int -> Either String [[[TxCon]]]
+getCombinations' useFee (samms, susers) txcons k =
+  if isNothing txcons then Right $ getCombinations useFee (samms, susers) k else
+  let (req, avail, free) = fromJust txcons
+      freeTxs = k - length req
+  in if freeTxs < 0 then Left "error: checking at lower depth than #(required txns)" else
+  let token_pairs' = map (\(SAMM _ r0' r1' _) -> (snd r0', snd r1')) samms
+      tokens        = nub . concat $ map (\(a, b) -> [a, b]) token_pairs'
+      token_pairs  = S.fromList token_pairs'
+      names         = map name susers
+      free_names    = S.fromList free
+      required_txs  = S.fromList req
+      combinations  = [TxCon n t0 t1 Nothing Nothing | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
+                                                      S.member n free_names, (S.member (t0, t1) token_pairs) 
+                                                      || (S.member (t1, t0) token_pairs) ]
+      combinations' = combinations ++ avail ++ req
+      ks            = [0..k]
+      guesses       = map (getGuesses combinations' required_txs (length req)) ks
+  in  if useFee then Right guesses else Right $ map (filter check_adjacent_txns) guesses
+  where
+    getGuesses combs reqs num_reqs k = [x | x <- sequence $ replicate k combs, (Util.count (flip S.member reqs) x) == num_reqs]
+    check_adjacent_txns [] = True
+    check_adjacent_txns (tx:[]) = True
+    check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
+        where 
+            check_tx tx []          = True
+            check_tx tx@(TxCon n t t' _ _) ((TxCon n' t'' t''' _  _):txs)
+                | n == n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = False
+                | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
+                | otherwise = check_tx tx txs
+
+getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxCon]]]
 getCombinations useFee (samms, susers) k =
   -- TODO: do more error checking here, such as checking for that length of unqieu elems = original list... etc.
   let token_pairs' = map (\(SAMM _ r0' r1' _) -> (snd r0', snd r1')) samms
       tokens        = nub . concat $ map (\(a, b) -> [a, b]) token_pairs'
       token_pairs  = S.fromList token_pairs'
       names         = map name susers
-      combinations  = [(n, t0, t1) | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
+      combinations  = [TxCon n t0 t1 Nothing Nothing | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
                                       (S.member (t0, t1) token_pairs) || (S.member (t1, t0) token_pairs) ]
       ks            = [0..k]
       guesses       = map (getGuesses combinations) ks
@@ -133,7 +161,7 @@ getCombinations useFee (samms, susers) k =
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
         where 
             check_tx tx []          = True
-            check_tx tx@(n, t, t') ((n', t'', t'''):txs)
+            check_tx tx@(TxCon n t t' _ _) ((TxCon n' t'' t''' _  _):txs)
                 | n == n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = False
                 | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
                 | otherwise = check_tx tx txs
@@ -186,13 +214,13 @@ makeAmm (SAMM n (v, t) (v', t') fee) stab =
             let tt = get stab tok_name in
             if isJust tt && (fromJust tt == DTok) then True else False
 
-chain :: [(String, String, String, [String])] -> [(String, String, [String])] -> Bool -> String
+chain :: [(String, String, String, [String])] -> [(String, String, Maybe Rational, Maybe Rational, [String])] -> Bool -> String
 chain amms users useFee =
   unlines $ go amms users useFee 1 []
   where
     go _ [] _ _ acc = acc
     go [] _ _ _ acc = acc
-    go ((fee, t0Amm, t1Amm, uncAmm):amms) ((t0Usr, t1Usr, uncUsr):users) useFee k acc = 
+    go ((fee, t0Amm, t1Amm, uncAmm):amms) ((t0Usr, t1Usr, v0Usr, v1Usr, uncUsr):users) useFee k acc = 
       go amms users useFee (k + 1) (acc ++ ([payout_assrtn, ite_assrtn, posfrom_assrtn]) ++ unc_assrtn)
       where 
         payout_assrtn = show . Assert $ 
@@ -223,7 +251,12 @@ chain amms users useFee =
           , "  )"
           , "))"
           ]
-        posfrom_assrtn = show . Assert $ gt (Var $ "from" +@ show k) (LReal 0) 
+        posfrom_assrtn = unlines 
+          [ if isNothing v0Usr then show . Assert $ gt (Var $ "from" +@ show k) (LReal 0)
+            else show . Assert $ eq (Var $ "from" +@ show k) (LReal $ fromJust v0Usr)
+          , if isNothing v1Usr then ""
+            else show . Assert $ eq (Var $ "to" +@ show k) (LReal $ fromJust v1Usr)
+          ]
         unc_assrtn = 
           let uncAmms = map (\v -> show . Assert $ eq (Var $ v) (Var $ prev v)) uncAmm
               uncUsrs = map (\v -> show . Assert $ eq (Var $ v) (Var $ prev v)) uncUsr

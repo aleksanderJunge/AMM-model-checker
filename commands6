@@ -1,13 +1,12 @@
 TOKENS (t0, t1)
-DEPTH 10
+DEPTH 1
 
-AMM t0t1 (18%1 : t0, 8%1  : t1)
+AMM t0t1 (_ : t0, _ : t1)
 
-USER aleks   (6%1 : t0, 6%1 : t1)
-USER alberto (6%1 : t0, 6%1 : t1)
+USER aleks   (_: t0, _ : t1)
 
 BEGIN
 
-EF   aleks.t0 = 11%1 && aleks.t1 = 11%1
+EF   t0t1.t0 < 0%1 || t0t1.t1 < 0%1
 
 END

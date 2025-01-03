@@ -27,50 +27,48 @@ repl = do
   let symtab = empty :: Env String SType
   (stab', toknames) <- toks_ symtab 
   depth <- getDepth
-  (stab'', stmts, amms, users) <- init_ stab' [] [] []
+  (stab'', stmts, amms, users, txconsts) <- init_ stab' [] [] []
   let useFee      = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
       defaultFees = if useFee then setDefaultFees amms [] else []
   (constraints) <- constrain stab'' []
-  let combs  =  getCombinations useFee (amms, users) depth
-      to_maximize = find (\case MAX exp _ -> True; _ -> False) constraints
-  case to_maximize of 
-    Just (MAX exp _) -> do
-      let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
-      check_and_max stab'' (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
-      return ()
-    _ -> do
-        satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
-        case satResult of
-            Nothing -> do {putStrLn "no solution found"; return ()}
-            res@(Just (depth, model, txs)) -> do
-                putStrLn $ "Solution found at depth " ++ (show depth)
-                model' <- model
-                let ftpr0r1  = read_model stab'' txs model'
-                    model''  = zip ftpr0r1 txs
-                    to_print = map print_txn model''
-                    amms     = pair_amms_tx stab'' txs
+  let combs' =  getCombinations' useFee (amms, users) txconsts depth
+  if isLeft combs' then do {putStrLn $ fromLeft' combs'; return ()}
+  else do 
+    let combs = fromRight' combs'
+        to_maximize = find (\case MAX _ _ -> True; _ -> False) constraints
+    case to_maximize of 
+      Just (MAX exp _) -> do
+        let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
+        check_and_max stab'' (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
+        return ()
+      _ -> do
+          satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
+          case satResult of
+              Nothing -> do {putStrLn "no solution found"; return ()}
+              res@(Just (depth, model, txs)) -> do
+                  putStrLn $ "Solution found at depth " ++ (show depth)
+                  model' <- model
+                  let ftpr0r1  = read_model stab'' txs model'
+                      model''  = zip ftpr0r1 txs
+                      to_print = map print_txn model''
+                      amms     = pair_amms_tx stab'' txs
 
-                mapM putStrLn to_print
-                return ()
+                  mapM putStrLn to_print
+                  return ()
                 --repl 
   where
     toks_ stab = do
-      --putStr ">> "
-      --hFlush stdout
       line <- getLine
       case TR.readMaybe line :: Maybe SToks of 
         Just toks -> do
             case declToks toks stab of
                 Left e -> do {putStrLn e; toks_ stab}
                 Right (stab', toklst) -> do 
-                    --putStrLn r
                     if length (nub toklst) /= length toklst then do {putStrLn "duplicate token..."; toks_ stab}
                     else return (stab', toklst)
         Nothing -> do {putStrLn "declare tokens, e.g.: TOKENS: (t0, t1, t2)"; toks_ stab}
 
     getDepth = do
-      --putStr ">> "
-      --hFlush stdout
       line <- getLine
       if take 5 line == "DEPTH" then 
         case TR.readMaybe (drop 5 line) :: Maybe Int of 
@@ -78,11 +76,43 @@ repl = do
           Nothing -> do {putStrLn "Please enter an Int as depth:"; getDepth}
       else getDepth
 
+    constrain_txs line decs@(stab, stmts, amms, users) txcons@(reqs, avails, frees) = do
+      case line of
+        _ | isPrefixOf "FREE" line -> 
+          case TR.readMaybe line :: Maybe TxFree of
+            Just (TxFree names) -> do 
+              if (not . null) frees then do {putStrLn "error, FREE (...) already declared"; l <- getLine; constrain_txs l decs txcons}
+              else do
+                nextLine <- getLine
+                constrain_txs nextLine decs (reqs, avails, names)
+            Nothing -> putError line decs txcons
+        'A':'V':'A':'I':'L':'A':'B':'L':'E':rest -> do
+          case TR.readMaybe rest :: Maybe TxCon of
+            Just txcon -> do
+              nextLine <- getLine
+              constrain_txs nextLine decs (reqs, avails ++ [txcon], frees)
+            Nothing -> putError line decs txcons
+        'R':'E':'Q':'U':'I':'R':'E':'D':rest     ->
+          case TR.readMaybe rest :: Maybe TxCon of
+            Just txcon -> do
+              nextLine <- getLine
+              constrain_txs nextLine decs (reqs ++ [txcon], avails, frees)
+            Nothing -> putError line decs txcons
+        "BEGIN" -> return (stab, stmts, amms, users, Just txcons)
+        _ | all (flip elem "\n\t ") line-> do {l <- getLine; constrain_txs l decs txcons}
+        _ -> putError line decs txcons
+      where
+        putError line tup consts = do
+          putStrLn $ "error: couldn't parse: " ++ show line
+          nextLine <- getLine
+          constrain_txs nextLine tup consts
+
     init_ stab stmts amms users = do
-      --putStr ">> "
-      --hFlush stdout
       line <- getLine
-      if take 5 line == "BEGIN" then return (stab, stmts, amms, users)
+      if isPrefixOf "BEGIN" line then return (stab, stmts, amms, users, Nothing)
+      else if isPrefixOf "REQUIRED" line
+           || isPrefixOf "FREE" line
+           || isPrefixOf "AVAILABLE" line then constrain_txs line (stab, stmts, amms, users) ([],[],[])
       else case TR.readMaybe line :: Maybe SAMM of
         Just samm -> do
           case makeAmm samm stab of
@@ -232,7 +262,7 @@ repl = do
               let pairs  = toTerms stdout
                   pairs' = filter (\(f, s) -> not $ null f || null s) pairs
                   maxval = listToMaybe . map snd $ filter (\(f, s)-> (take 15 f) == "exp_to_maximize") pairs'
-              case stringToRational <$> maxval of
+              case liftM stringToRational maxval of
                 Just r  -> pure (True, r, stdout)
                 -- TODO: remove this trace
                 Nothing -> trace "error: couldn't read exp_to_maximize as a rational!" pure (False, Nothing, stderr)
@@ -240,12 +270,12 @@ repl = do
 
     pair_amms_tx stab txns = 
       let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
-          pairs = map (\(_, t0, t1) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
-                                                                         (t0' == t1 && t1' == t0); _ -> False}) amms) txns
+          pairs = map (\(TxCon _ t0 t1 _ _) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
+                                                                               (t0' == t1 && t1' == t0); _ -> False}) amms) txns
           unjust = catMaybes pairs
       in if length pairs /= length unjust then Left "one amm pair not found" else 
       let unwrapped = catMaybes $ map (\case {(n, DAmm t0 t1) -> return (n, t0, t1); _ -> Nothing}) unjust
-          withdir = zipWith3 (\(n, t0, t1) (_, t0', t1') i -> 
+          withdir = zipWith3 (\(n, t0, t1) (TxCon _ t0' t1' _ _) i -> 
             if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i) else ("r" +@ n +@ i, "l" +@ n +@ i)) 
               unwrapped txns (map show [1..(length txns)])
       in return withdir
@@ -269,7 +299,7 @@ repl = do
           let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
           in (take (length s - 1) s) ++ (show $ time - 1)
 
-    print_txn ((f,t,p, (r0p, r0c), (r1p, r1c)),(sender, t0, t1)) = 
+    print_txn ((f,t,p, (r0p, r0c), (r1p, r1c)),(TxCon sender t0 t1 _ _)) = 
       unlines $ 
       [ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
       --[ sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
