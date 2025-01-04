@@ -22,51 +22,57 @@ import Control.Monad
 import Control.Monad.Extra
 import Debug.Trace
 
-repl :: IO ()
+repl :: IO (Either String ())
 repl = do
   let symtab = empty :: Env String SType
-  (stab', toknames) <- toks_ symtab 
+  (stab', toknames, opts) <- toks_ symtab []
   depth <- getDepth
   (stab'', stmts, amms, users, txconsts) <- init_ stab' [] [] []
-  let useFee      = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
-      defaultFees = if useFee then setDefaultFees amms [] else []
-  (constraints) <- constrain stab'' []
-  let combs' =  getCombinations' useFee (amms, users) txconsts depth
-  if isLeft combs' then do {putStrLn $ fromLeft' combs'; return ()}
+  let useFee        = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
+      defaultFees   = if useFee then setDefaultFees amms [] else []
+      usingRational = not . null $ find (\case Precision Nothing -> True; _ -> False) opts
+  if usingRational && isJust txconsts then return . Left $ "Must use decimal numbers when adding constraints on transactions"
   else do 
-    let combs = fromRight' combs'
-        to_maximize = find (\case MAX _ _ -> True; _ -> False) constraints
-    case to_maximize of 
-      Just (MAX exp _) -> do
-        let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
-        check_and_max stab'' (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
-        return ()
-      _ -> do
-          satResult <- check (buildSMTQuery (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
-          case satResult of
-              Nothing -> do {putStrLn "no solution found"; return ()}
-              res@(Just (depth, model, txs)) -> do
-                  putStrLn $ "Solution found at depth " ++ (show depth)
-                  model' <- model
-                  let ftpr0r1  = read_model stab'' txs model'
-                      model''  = zip ftpr0r1 txs
-                      to_print = map print_txn model''
-                      amms     = pair_amms_tx stab'' txs
+    (constraints) <- constrain stab'' []
+    let combs' =  getCombinations' useFee (amms, users) txconsts depth
+    if isLeft combs' then return . Left $ fromLeft' combs'
+    else do 
+      let combs = fromRight' combs'
+          to_maximize = find (\case MAX _ _ -> True; _ -> False) constraints
+      case to_maximize of 
+        Just (MAX exp _) | usingRational -> return . Left $ "Must use decimal numbers when using the 'MAX' <exp> constraint"
+        Just (MAX exp _) -> do
+          let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
+          check_and_max stab'' (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
+          return $ Right ()
+        _ -> do
+            satResult <- check (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
+            case satResult of
+                Nothing -> do {putStrLn "no solution found"; return $ Right ()}
+                res@(Just (depth, model, txs)) -> do
+                    putStrLn $ "Solution found at depth " ++ (show depth)
+                    model' <- model
+                    let ftpr0r1  = read_model stab'' txs model'
+                        model''  = zip ftpr0r1 txs
+                        to_print = map print_txn model''
+                        amms     = pair_amms_tx stab'' txs
+                    mapM putStrLn to_print
+                    return $ Right ()
 
-                  mapM putStrLn to_print
-                  return ()
-                --repl 
   where
-    toks_ stab = do
+    toks_ stab opts = do
       line <- getLine
       case TR.readMaybe line :: Maybe SToks of 
         Just toks -> do
             case declToks toks stab of
-                Left e -> do {putStrLn e; toks_ stab}
+                Left e -> do {putStrLn e; toks_ stab opts}
                 Right (stab', toklst) -> do 
-                    if length (nub toklst) /= length toklst then do {putStrLn "duplicate token..."; toks_ stab}
-                    else return (stab', toklst)
-        Nothing -> do {putStrLn "declare tokens, e.g.: TOKENS: (t0, t1, t2)"; toks_ stab}
+                    if length (nub toklst) /= length toklst then do {putStrLn "duplicate token..."; toks_ stab opts}
+                    else return (stab', toklst, opts)
+        Nothing -> 
+          case TR.readMaybe line :: Maybe Opt of
+            Just opt -> toks_ stab (opts ++ [opt])
+            Nothing  -> do {putStrLn "declare tokens... TOKENS: (...), or set option... SETOPT ..."; toks_ stab opts}
 
     getDepth = do
       line <- getLine

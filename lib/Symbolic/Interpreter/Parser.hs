@@ -126,6 +126,18 @@ parse stab input =
         | null a    = Nothing
         | otherwise = Just $ splitWhen (\(c,i) -> elem c " \t\n") a 
 
+instance Read Opt where
+    readsPrec _ ('S':'E':'T':'O':'P':'T':input) = 
+      let tokens = words input in
+      case tokens of
+        ("RATIONAL":rem) -> [(Precision Nothing, unwords rem)]
+        ("DECIMAL":v:rem) | all isNumber v -> 
+          case readMaybe v :: Maybe Int of
+            Just i -> [(Precision $ Just i, unwords rem)]
+            _      -> []
+        ("DECIMAL":rem) -> [(Precision $ Just 3, unwords rem)] --defaults to 3 digits of precision
+        _ -> []
+    readsPrec _ _ = []
 
 instance Read SToks where
     readsPrec _ ('T':'O':'K':'E':'N':'S':input) = 
@@ -138,6 +150,7 @@ instance Read SToks where
                 any (\s -> null s || all (\c -> c == ' ') s) toks'' then [] else
         [(SToks $ toks'', rest)]
     readsPrec _ _ = []
+
 
 instance Read TxFree where
     readsPrec _ ('F':'R':'E':'E':input) = 

@@ -6,5 +6,8 @@ import Symbolic.Repl
 
 main :: IO ()
 main = do
-  repl 
-  return ()
+  out <- repl
+  case out of
+    Left err -> do {putStrLn err; return ()}
+    _ -> return ()
+  

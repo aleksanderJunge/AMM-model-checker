@@ -25,20 +25,20 @@ type TxGuess = (String, String, String)
 
 type TxSeqGuess = [TxGuess]
 
-buildSMTQuery :: ([SAMM], [SUser], [Assert]) -> Bool -> Symtable -> [String] -> [Query] -> [TxCon] -> Int -> Either String String
-buildSMTQuery ([], _, _) _ _ _ _ _ _ = Left "Missing AMMS"
-buildSMTQuery (_, [], _) _ _ _ _ _ _ = Left "Missing Users"
+buildSMTQuery :: [Opt] -> ([SAMM], [SUser], [Assert]) -> Bool -> Symtable -> [String] -> [Query] -> [TxCon] -> Int -> Either String String
+buildSMTQuery _ ([], _, _) _ _ _ _ _ _ = Left "Missing AMMS"
+buildSMTQuery _ (_, [], _) _ _ _ _ _ _ = Left "Missing Users"
 --buildSMTQuery (_, _, _) _ _ _ [] _ _ = Left "Missing Query"
-buildSMTQuery (samms, susers, assertions) useFee stab toks queries guess k =
+buildSMTQuery opts (samms, susers, assertions) useFee stab toks queries guess k =
     -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms
         swappingUsers = usersToUse guess susers toks
         max_query     = catMaybes $ map (\case MAX exp gtval -> Just (exp, gtval); _ -> Nothing) queries
-        --stab'        = createSymvals samms stab k
+        precision     = fromMaybe (Precision $ Just 3) (find (\case Precision _ -> True) opts) -- in case more opts added later:  _ -> False
+        --stab'        = createSymvals samms stab
     in Right $
     unlines ["(set-logic QF_NRA)"]
-    ++ unlines ["(set-option :pp.decimal true)"] -- TODO: make this an option
-    ++ unlines ["(set-option :pp.decimal_precision 3)"]
+    ++ (\case Precision Nothing -> ""; Precision (Just i) -> unlines ["(set-option :pp.decimal true)", "(set-option :pp.decimal_precision " ++ show i ++ ")"]) precision
     ++ unlines (map show (buildVars samms susers toks useFee k))
     ++ unlines (map show assertions)
     ++ posBalAssertion susers toks k

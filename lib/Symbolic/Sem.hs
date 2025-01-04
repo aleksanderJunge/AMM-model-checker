@@ -176,6 +176,8 @@ data TxCon = TxCon
 
 data TxFree = TxFree [String] deriving (Show, Eq)
 
+data Opt = Precision (Maybe Int) deriving (Show, Eq)
+
 -- we only provide input for t, v, and wallet if those are to be "named" and constrained, otherwise leave unconstrained
 data SAMM = SAMM
     { ammName :: String
