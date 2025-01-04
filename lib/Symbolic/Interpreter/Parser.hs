@@ -260,7 +260,8 @@ instance Read SUser where
                             let v' = concat $ words v
                                 t' = concat $ words t 
                                 v'' = toVal v'
-                                in if all isAlphaNum t' && isJust v'' then Just (t', v'')
-                                   else Nothing
+                            in if all isAlphaNum t' && isJust v'' then Just (t', v'')
+                               else if all isAlphaNum t' && isNothing v'' then Just (t', Nothing)
+                               else Nothing
                         otherwise -> Nothing
     readsPrec _ _ = []
