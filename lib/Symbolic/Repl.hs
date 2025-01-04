@@ -11,6 +11,8 @@ import Data.Maybe
 import Data.Char
 import Data.List
 import Data.Either
+import Data.Ratio
+import Numeric
 import Data.Tuple.Extra
 import Data.Either.Extra
 import qualified Data.Map as M
@@ -55,7 +57,8 @@ repl = do
                         Just (MAX exp _) | usingRational -> return . Left $ "Must use decimal numbers when using the 'MAX' <exp> constraint"
                         Just (MAX exp _) -> do
                           let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
-                          check_and_max stab'' (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
+                              precision = fromMaybe (Precision $ Just 3) (find (\case Precision (Just i) -> True; _ -> False) opts) 
+                          check_and_max precision stab'' (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
                           return $ Right ()
                         _ -> do
                             satResult <- check (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
@@ -204,23 +207,25 @@ repl = do
             "sat"     -> pure (True, stdout)
             otherwise -> pure (False, stderr)
 
-    check_and_max stab buildQuery queries to_maximize [] guesses = pure Nothing
-    check_and_max stab buildQuery queries to_maximize ks []      = pure Nothing 
-    check_and_max stab buildQuery queries to_maximize (k:ks) (guess:guesses) = do
+    check_and_max precision stab buildQuery queries to_maximize [] guesses = pure Nothing
+    check_and_max precision stab buildQuery queries to_maximize ks []      = pure Nothing 
+    check_and_max precision stab buildQuery queries to_maximize (k:ks) (guess:guesses) = do
         res <- check_depth_and_max buildQuery queries to_maximize k guess
+        let precision' = (\case Precision (Just i) -> i; _ -> 3) precision
         case res of 
             Nothing  -> do 
               putStrLn $ "No solution found at depth " ++ (show k)
-              check_and_max stab buildQuery queries to_maximize ks guesses
+              check_and_max precision stab buildQuery queries to_maximize ks guesses
             Just ((lo,hi), out, txs) -> do
-              putStrLn $ "Solution found at depth " ++ (show k) ++ " with max value in interval:\n[" ++ (show lo) ++ "; " ++ (show hi) ++ "]"
+              putStrLn $ "Solution found at depth " ++ (show k) ++ " with max value in interval:\n[" ++ (display precision' lo) ++ "; " ++ (display precision' hi) ++ "]"
               let ftpr0r1  = read_model stab txs out
                   model'  = zip ftpr0r1 txs
                   to_print = map print_txn model'
                   amms     = pair_amms_tx stab txs
               mapM putStrLn to_print
-              check_and_max stab buildQuery queries to_maximize ks guesses
-
+              check_and_max precision stab buildQuery queries to_maximize ks guesses
+        where
+            display n x = (showFFloat (Just n) $ fromRat x) ""
     check_depth_and_max buildQuery queries to_maximize k guesses = do
         intervals <- mapM (\guess -> find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess) guesses
         let max_val'    = foldl max (Just 0) (map (liftM fst . snd3) (filter fst3 intervals)) -- lower bound more important than upper bound, thus selecting max lo
