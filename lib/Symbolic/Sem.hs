@@ -9,7 +9,6 @@ import Data.List.Extra
 import Data.Char
 import Data.Ratio
 import Data.Maybe
-import Data.Tuple
 import qualified Data.Map as M
 
 import qualified GHC.Utils.Misc as Util
@@ -178,7 +177,6 @@ data TxFree = TxFree [String] deriving (Show, Eq)
 
 data Opt = Precision (Maybe Int) deriving (Show, Eq)
 
--- we only provide input for t, v, and wallet if those are to be "named" and constrained, otherwise leave unconstrained
 data SAMM = SAMM
     { ammName :: String
     , r0      :: (Maybe Rational, String)
@@ -192,37 +190,3 @@ data SUser = SUser
     { wallet :: [(String, (Maybe Rational))]
     , name   ::  String }
     deriving (Show)
-
-instance Read SUser where
-    readsPrec _ ('U':'S':'E':'R':input) = 
-        let (name, rest1) = readTokUntil '(' input in if name == "!" then [] else
-        let (wal, rest)   = readUntil    ')' rest1 in if wal  == "!" then [] else
-        let wal'  = Util.split ',' wal
-            wal'' = map parsePair wal'
-        in
-        if (not . null) name && all (\c -> isAlphaNum c || c == '_') name 
-                             && all isJust wal'' 
-        then let wal''' = map swap (Util.mapFst toR (map fromJust wal''))
-             in [( SUser wal''' name, rest)]
-        else []
-            where
-                toR s = readMaybe s :: Maybe Rational
-                parsePair s | all (flip elem " \n\t") s = Nothing
-                parsePair s  = 
-                    case Util.split ':' s of
-                        (v:t:[]) -> 
-                            let v' = concat $ words v
-                                t' = concat $ words t in 
-                                    if isToken t' && isRatio v' then Just (v', t')
-                                    else Nothing
-                        otherwise -> Nothing
-                    where 
-                        isRatio "" = False
-                        isRatio r  = 
-                            if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
-                            case Util.split '%' r of 
-                                (num:den:[]) | all isNumber num && all isNumber den -> True
-                                _ -> False
-                        isToken "" = False
-                        isToken s  = all isAlphaNum s -- TODO: allow symbolic tokens in the wallet? or ludacris
-    readsPrec _ _ = []

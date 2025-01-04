@@ -76,18 +76,12 @@ parse stab input =
           case readMaybe s :: Maybe BinOp of
             Just bino -> Right . BinO $ bino
             Nothing   -> do
-              case readMaybe s :: Maybe Rational of 
+              case toVal s :: Maybe Rational of 
                 Just r -> Right . Done $ LReal r
                 Nothing -> 
                   case toVar stab s of
                     Right exp -> return . Done $ exp
                     Left err  -> Left err
-    isRatio "" = False
-    isRatio r  = 
-        if all ((==) '_') r then True else -- TODO: we allow sym vals for the values of token balance?
-        case Util.split '%' r of 
-            (num:den:[]) | all isNumber num && all isNumber den -> True
-            _ -> False
     toVar stab "" = Left "indexing empty string"
     toVar stab n = 
         case Util.split '.' n of 
@@ -192,23 +186,13 @@ instance Read TxCon where
       let (t0,   rest4) = readTokUntil ',' rest3 in if t0   == "!" then [] else
       let (v1,   rest5) = readTokUntil ':' rest4 in if v1   == "!" then [] else
       let (t1,   rest6) = readTokUntil ')' rest5 in if t1   == "!" then [] else
+      let v0' = toVal v0
+          v1' = toVal v1 in
       if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
                            && all (all isAlphaNum) [t0, t1]
-                           && all isRatio [v0, v1]
-      then [(TxCon name t0 t1 (toVal v0) (toVal v1), rest6)] else []
-      where
-          isRatio "" = False
-          isRatio r  = 
-              if all ((==) '_') r then True else
-              if all isNumber r then True else  --parse to Int then Rational
-              case Util.split '%' r of 
-                  (num:den:[]) | all isNumber num && all isNumber den -> True
-                  _ -> False
-          toVal  "_" = Nothing
-          toVal  v   = 
-            case readMaybe v :: Maybe Int of
-              Just i -> Just $ toRational i
-              Nothing -> readMaybe v :: Maybe Rational
+                           && (isJust v0' || all (=='_') v0)
+                           && (isJust v1' || all (=='_') v1)
+      then [(TxCon name t0 t1 v0' v1', rest6)] else []
 
 
 instance Read SAMM where
@@ -217,39 +201,32 @@ instance Read SAMM where
         let (v0,   rest2) = readTokUntil ':' rest1 in if v0   == "!" then [] else
         let (t0,   rest3) = readTokUntil ',' rest2 in if t0   == "!" then [] else
         let (v1,   rest4) = readTokUntil ':' rest3 in if v1   == "!" then [] else
+        let v0' = toVal v0
+            v1' = toVal v1 in
         case Util.split ':' rest4 of -- TODO: clean this up too much duplicated 
           [_] -> 
             let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
             if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
                                  && all (all isAlphaNum) [t0, t1]
-                                 && all isRatio [v0, v1]
-            then [(SAMM name (toVal v0, t0) (toVal v1, t1) None, rest)]
+                                 && (isJust v0' || all (=='_') v0)
+                                 && (isJust v1' || all (=='_') v1)
+            then [(SAMM name (v0', t0) (v1', t1) None, rest)]
             else []
           t_and_val : fee : [] -> 
             let (t1,  rest5)  = readTokUntil ',' rest4 in if t1   == "!" then [] else
             let (vFee, rest6) = readTokUntil ':' rest5 in if vFee == "!" then [] else
-            let (tFee, rest)  = readTokUntil ')' rest6 in if tFee == "!" then [] else
+            let vFee'         = toValFee vFee
+                (tFee, rest)  = readTokUntil ')' rest6 in if tFee == "!" then [] else
             if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
                                 && all (all isAlphaNum) [t0, t1]
-                                && all isRatio [v0, v1]
-                                && isRatio vFee
+                                && (isJust v0' || all (=='_') v0)
+                                && (isJust v1' || all (=='_') v1)
+                                && (isJust (toVal vFee) || all (=='_') vFee)
                                 && (==) "fee" tFee
-            then [(SAMM name (toVal v0, t0) (toVal v1, t1) (toValFee vFee), rest)]
+            then [(SAMM name (v0', t0) (v1', t1) (toValFee vFee), rest)]
             else []
           _ -> []
         where 
-            isRatio "" = False
-            isRatio r  = 
-                if all ((==) '_') r then True else
-                if all isNumber r then True else  --parse to Int then Rational
-                case Util.split '%' r of 
-                    (num:den:[]) | all isNumber num && all isNumber den -> True
-                    _ -> False
-            toVal  "_" = Nothing
-            toVal  v   = 
-              case readMaybe v :: Maybe Int of
-                Just i -> Just $ toRational i
-                Nothing -> readMaybe v :: Maybe Rational
             toValFee  "_" = Sym
             toValFee  v   = 
               case readMaybe v :: Maybe Int of
@@ -257,5 +234,33 @@ instance Read SAMM where
                 Nothing ->
                   case readMaybe v :: Maybe Rational of
                     Just r -> Conc r
-                    Nothing -> None
+                    Nothing -> 
+                      case stringToRational v of 
+                        Just r -> Conc r
+                        Nothing -> None
     readsPrec _ _ = [] -- no parse 
+
+instance Read SUser where
+    readsPrec _ ('U':'S':'E':'R':input) = 
+        let (name, rest1) = readTokUntil '(' input in if name == "!" then [] else
+        let (wal, rest)   = readUntil    ')' rest1 in if wal  == "!" then [] else
+        let wal'  = Util.split ',' wal
+            wal'' = map parsePair wal'
+        in
+        if (not . null) name && all (\c -> isAlphaNum c || c == '_') name 
+                             && all isJust wal'' 
+        then let wal''' = map fromJust wal''
+             in [( SUser wal''' name, rest)]
+        else []
+            where
+                parsePair s | all (flip elem " \n\t") s = Nothing
+                parsePair s  = 
+                    case Util.split ':' s of
+                        (v:t:[]) -> 
+                            let v' = concat $ words v
+                                t' = concat $ words t 
+                                v'' = toVal v'
+                                in if all isAlphaNum t' && isJust v'' then Just (t', v'')
+                                   else Nothing
+                        otherwise -> Nothing
+    readsPrec _ _ = []

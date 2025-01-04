@@ -31,3 +31,13 @@ stringToRational s =
         go ('.':s) acc ctr = go s acc (ctr * 10)
         go (i:s) acc ctr  | not (isNumber i) =  Nothing
         go _ acc _ = Nothing
+
+toVal :: String -> Maybe Rational
+toVal  "_" = Nothing
+toVal  v   = 
+    case readMaybe v :: Maybe Int of
+    Just i -> Just $ toRational i
+    Nothing -> 
+        case readMaybe v :: Maybe Rational of
+        Just r -> Just r
+        Nothing -> stringToRational v
