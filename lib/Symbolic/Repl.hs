@@ -25,39 +25,51 @@ import Debug.Trace
 repl :: IO (Either String ())
 repl = do
   let symtab = empty :: Env String SType
-  (stab', toknames, opts) <- toks_ symtab []
-  depth <- getDepth
-  (stab'', stmts, amms, users, txconsts) <- init_ stab' [] [] []
-  let useFee        = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
-      defaultFees   = if useFee then setDefaultFees amms [] else []
-      usingRational = not . null $ find (\case Precision Nothing -> True; _ -> False) opts
-  if usingRational && isJust txconsts then return . Left $ "Must use decimal numbers when adding constraints on transactions"
-  else do 
-    (constraints) <- constrain stab'' []
-    let combs' =  getCombinations' useFee (amms, users) txconsts depth
-    if isLeft combs' then return . Left $ fromLeft' combs'
-    else do 
-      let combs = fromRight' combs'
-          to_maximize = find (\case MAX _ _ -> True; _ -> False) constraints
-      case to_maximize of 
-        Just (MAX exp _) | usingRational -> return . Left $ "Must use decimal numbers when using the 'MAX' <exp> constraint"
-        Just (MAX exp _) -> do
-          let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
-          check_and_max stab'' (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
-          return $ Right ()
-        _ -> do
-            satResult <- check (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
-            case satResult of
-                Nothing -> do {putStrLn "no solution found"; return $ Right ()}
-                res@(Just (depth, model, txs)) -> do
-                    putStrLn $ "Solution found at depth " ++ (show depth)
-                    model' <- model
-                    let ftpr0r1  = read_model stab'' txs model'
-                        model''  = zip ftpr0r1 txs
-                        to_print = map print_txn model''
-                        amms     = pair_amms_tx stab'' txs
-                    mapM putStrLn to_print
-                    return $ Right ()
+  tok_and_opts <- toks_ symtab []
+  case tok_and_opts of 
+    Left e -> return $ Left e
+    Right (stab', toknames, opts) -> do
+      depth' <- getDepth
+      case depth' of
+        Left e -> return $ Left e
+        Right depth -> do
+          amm_and_user_decls <- init_ stab' [] [] []
+          case amm_and_user_decls of
+            Left e -> return $ Left e
+            Right (stab'', stmts, amms, users, txconsts) -> do
+              let useFee        = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
+                  defaultFees   = if useFee then setDefaultFees amms [] else []
+                  usingRational = not . null $ find (\case Precision Nothing -> True; _ -> False) opts
+              if usingRational && isJust txconsts then return . Left $ "Must use decimal numbers when adding constraints on transactions"
+              else do 
+                constraints' <- constrain stab'' []
+                case constraints' of
+                  Left e -> return $ Left e
+                  Right constraints -> do
+                    let combs' =  getCombinations' useFee (amms, users) txconsts depth
+                    if isLeft combs' then return . Left $ fromLeft' combs'
+                    else do 
+                      let combs = fromRight' combs'
+                          to_maximize = find (\case MAX _ _ -> True; _ -> False) constraints
+                      case to_maximize of 
+                        Just (MAX exp _) | usingRational -> return . Left $ "Must use decimal numbers when using the 'MAX' <exp> constraint"
+                        Just (MAX exp _) -> do
+                          let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
+                          check_and_max stab'' (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
+                          return $ Right ()
+                        _ -> do
+                            satResult <- check (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
+                            case satResult of
+                                Nothing -> do {putStrLn "no solution found"; return $ Right ()}
+                                res@(Just (depth, model, txs)) -> do
+                                    putStrLn $ "Solution found at depth " ++ (show depth)
+                                    model' <- model
+                                    let ftpr0r1  = read_model stab'' txs model'
+                                        model''  = zip ftpr0r1 txs
+                                        to_print = map print_txn model''
+                                        amms     = pair_amms_tx stab'' txs
+                                    mapM putStrLn to_print
+                                    return $ Right ()
 
   where
     toks_ stab opts = do
@@ -65,29 +77,53 @@ repl = do
       case TR.readMaybe line :: Maybe SToks of 
         Just toks -> do
             case declToks toks stab of
-                Left e -> do {putStrLn e; toks_ stab opts}
+                Left e -> return $ Left e
                 Right (stab', toklst) -> do 
-                    if length (nub toklst) /= length toklst then do {putStrLn "duplicate token..."; toks_ stab opts}
-                    else return (stab', toklst, opts)
+                    if length (nub toklst) /= length toklst then return . Left $ "duplicate token..."
+                    else return . Right $ (stab', toklst, opts)
         Nothing -> 
           case TR.readMaybe line :: Maybe Opt of
             Just opt -> toks_ stab (opts ++ [opt])
-            Nothing  -> do {putStrLn "declare tokens... TOKENS: (...), or set option... SETOPT ..."; toks_ stab opts}
+            Nothing  -> return . Left $ "couldn't parse: \n" ++ line ++ "\nas 'TOKENS' or 'SETOPT'"
 
     getDepth = do
       line <- getLine
-      if take 5 line == "DEPTH" then 
-        case TR.readMaybe (drop 5 line) :: Maybe Int of 
-          Just i -> pure i
-          Nothing -> do {putStrLn "Please enter an Int as depth:"; getDepth}
-      else getDepth
+      case line of 
+        _ | isPrefixOf "DEPTH" line -> 
+          case TR.readMaybe (drop 5 line) :: Maybe Int of 
+            Just i -> return $ Right i
+            Nothing -> return $ Left "Please enter an Int as depth"
+        _ | all (flip elem " \t") line -> getDepth -- Just a whitespace line
+        _ -> return $ Left "Please input the DEPTH <i> to check, after the TOKENS decl"
+
+    init_ stab stmts amms users = do
+      line <- getLine
+      if isPrefixOf "BEGIN" line then return $ Right (stab, stmts, amms, users, Nothing)
+      else if isPrefixOf "REQUIRED" line
+           || isPrefixOf "FREE" line
+           || isPrefixOf "AVAILABLE" line then constrain_txs line (stab, stmts, amms, users) ([],[],[])
+      else case TR.readMaybe line :: Maybe SAMM of
+        Just samm -> do
+          case makeAmm samm stab of
+            Left e -> do {putStrLn e; init_ stab stmts amms users}
+            Right (r, stab') -> init_ stab' (stmts ++ r) (samm : amms) users
+        Nothing ->
+            case TR.readMaybe line :: Maybe SUser of 
+            Just user ->
+                case makeUser user stab of
+                Left e -> do {putStrLn e; init_ stab stmts amms users}
+                Right (r, stab') -> do 
+                    init_ stab' (stmts ++ r) amms (user : users)
+            Nothing -> if all (flip elem "\t\n ") line 
+                       then init_ stab stmts amms users 
+                       else return . Left $ "failed to parse: " ++ line
 
     constrain_txs line decs@(stab, stmts, amms, users) txcons@(reqs, avails, frees) = do
       case line of
         _ | isPrefixOf "FREE" line -> 
           case TR.readMaybe line :: Maybe TxFree of
             Just (TxFree names) -> do 
-              if (not . null) frees then do {putStrLn "error, FREE (...) already declared"; l <- getLine; constrain_txs l decs txcons}
+              if (not . null) frees then return . Left $ "error, FREE (...) already declared"
               else do
                 nextLine <- getLine
                 constrain_txs nextLine decs (reqs, avails, names)
@@ -104,35 +140,11 @@ repl = do
               nextLine <- getLine
               constrain_txs nextLine decs (reqs ++ [txcon], avails, frees)
             Nothing -> putError line decs txcons
-        "BEGIN" -> return (stab, stmts, amms, users, Just txcons)
+        "BEGIN" -> return $ Right (stab, stmts, amms, users, Just txcons)
         _ | all (flip elem "\n\t ") line-> do {l <- getLine; constrain_txs l decs txcons}
         _ -> putError line decs txcons
       where
-        putError line tup consts = do
-          putStrLn $ "error: couldn't parse: " ++ show line
-          nextLine <- getLine
-          constrain_txs nextLine tup consts
-
-    init_ stab stmts amms users = do
-      line <- getLine
-      if isPrefixOf "BEGIN" line then return (stab, stmts, amms, users, Nothing)
-      else if isPrefixOf "REQUIRED" line
-           || isPrefixOf "FREE" line
-           || isPrefixOf "AVAILABLE" line then constrain_txs line (stab, stmts, amms, users) ([],[],[])
-      else case TR.readMaybe line :: Maybe SAMM of
-        Just samm -> do
-          case makeAmm samm stab of
-            Left e -> do {putStrLn e; init_ stab stmts amms users}
-            Right (r, stab') -> init_ stab' (stmts ++ r) (samm : amms) users
-        Nothing ->
-            case TR.readMaybe line :: Maybe SUser of 
-            Just user ->
-                case makeUser user stab of
-                Left e -> do {putStrLn e; init_ stab stmts amms users}
-                Right (r, stab') -> do 
-                    init_ stab' (stmts ++ r) amms (user : users)
-            Nothing -> do
-                init_ stab stmts amms users
+        putError line tup consts = return . Left $ "error: couldn't parse: " ++ show line
 
     constrain stab acc = do
       line <- getLine
@@ -140,36 +152,36 @@ repl = do
         'I':'N':'I':'T':s -> 
           case parse stab s of
             Right exp -> constrain stab (acc ++ [INIT exp])
-            Left e    -> do {putStrLn e; constrain stab acc}
+            Left e    -> return . Left $ e
         'E':'F':s   ->
           case parse stab s of
             Right exp -> constrain stab (acc ++ [EF exp])
-            Left e    -> do {putStrLn e; constrain stab acc}
+            Left e    -> return . Left $ e
         'E':'U':s   ->
           let (blank1, rest1) = readUntil '(' s
               (exp1,   rest2) = readUntil ')' rest1
               (blank2, rest3) = readUntil '(' rest2
               (exp2, _)       = readUntil ')' rest3
-          in if any ((==) "!") [blank1, exp1, blank2, exp2] then
-            do {putStrLn "failed reading EU, syntax is: EU (exp1) (exp2)"; constrain stab acc} else
-            case parse stab exp1 of
-              Right exp1 ->
-                case parse stab exp2 of
-                  Right exp2 -> do 
-                    constrain stab (acc ++ [EU exp1 exp2])
-                  Left e -> do {putStrLn e; constrain stab acc}
-              Left e    -> do {putStrLn e; constrain stab acc}
+          in if any ((==) "!") [blank1, exp1, blank2, exp2] 
+             then return . Left $ "failed reading EU, syntax is: EU (exp1) (exp2)" 
+             else case parse stab exp1 of
+               Right exp1 ->
+                 case parse stab exp2 of
+                   Right exp2 -> constrain stab (acc ++ [EU exp1 exp2])
+                   Left e -> return . Left $ "failed to parse second expression: " ++ e
+               Left e    -> return . Left $ "failed to parse first expression: " ++ e
         'M':'A':'X':s -> 
           case parse stab s of
             Right exp -> do 
               case get stab "exp_to_maximize" of
-                Just _  -> do {putStrLn "error: the name exp_to_maximize already exists in symtab!"; constrain stab acc}
+                Just _  -> return . Left $ "error: the name exp_to_maximize already exists in symtab!"
                 Nothing -> do
                   let stab' = bind stab ("exp_to_maximize", Symval)
                   constrain stab' (acc ++ [MAX exp (LReal 0)])
-            Left e    -> do {putStrLn e; constrain stab acc}
-        'E':'N':'D':s -> return acc
-        _        -> constrain stab acc
+            Left e    -> return $ Left e
+        'E':'N':'D':s -> return $ Right acc
+        _ | all (flip elem "\t\n ") line -> constrain stab acc
+        _ -> return . Left $ "failed to parse: " ++ line
 
     check buildQuery [] guesses = pure Nothing
     check buildQuery ks []      = pure Nothing 

@@ -102,6 +102,7 @@ parse stab input =
                                   Just (DAmm _ _)  ->  Left $ "field of AMM: " ++ name ++ " being indexed isn't a token on this AMM!"
                                   Just DTok->  Left $ "Tried to index a token"
                                   _ -> Left $ "field indexing: " ++ name ++ " failed."
+            _ -> Left $ "failed to read: " ++ n
     readParens :: [(Char, Int)] -> String -> Int -> [(Char, Int)]
     readParens acc []       ctr 
         | ctr > 0               = [] -- error wrong parenthesis
