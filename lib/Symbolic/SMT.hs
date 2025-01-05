@@ -128,11 +128,12 @@ getCombinations' useFee (samms, susers) txcons k =
                                                       || (S.member (t1, t0) token_pairs) ]
       combinations' = combinations ++ avail ++ req
       ks            = [0..k]
-      guesses       = map (getGuesses combinations' req_txns (length req)) ks
+      guesses       = map (getGuesses combinations' req_txns avail (length req)) ks
   in  if useFee || isJust txcons then Right guesses else Right $ map (filter check_adjacent_txns) guesses
   where
-    getGuesses combs req_txns num_reqs k = [x | x <- sequence $ replicate k combs, 
-                                            all (\(tx, c) -> Util.count (==tx) x >= c) req_txns]
+    getGuesses combs req_txs avail_txs num_reqs k = 
+      [x | x <- sequence $ replicate k combs, 
+           all (\(tx, c) -> (Util.count (==tx) x - Util.count (==tx) avail_txs) == c) req_txs]
     check_adjacent_txns [] = True
     check_adjacent_txns (tx:[]) = True
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
@@ -161,10 +162,10 @@ getCombinations useFee (samms, susers) k =
     check_adjacent_txns (tx:[]) = True
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
         where 
-            check_tx tx []          = True
-            check_tx tx@(TxCon n t t' _ _) ((TxCon n' t'' t''' _  _):txs)
-                | n == n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = False
-                | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
+            check_tx tx [] = True
+            check_tx tx@(TxCon n t0 t1 _ _) ((TxCon n' t0' t1' _  _):txs)
+                | n == n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = False
+                | n /= n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = True
                 | otherwise = check_tx tx txs
 
 posBalAssertion :: [SUser] -> [String] -> Int -> String

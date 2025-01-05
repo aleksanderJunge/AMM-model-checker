@@ -87,7 +87,9 @@ repl = do
         Nothing -> 
           case TR.readMaybe line :: Maybe Opt of
             Just opt -> toks_ stab (opts ++ [opt])
-            Nothing  -> return . Left $ "couldn't parse: \n" ++ line ++ "\nas 'TOKENS' or 'SETOPT'"
+            Nothing  -> 
+              if isPrefixOf "--" line || all (flip elem "\t\n ") line then toks_ stab opts else
+              return . Left $ "couldn't parse: \n" ++ line ++ "\nas 'TOKENS' or 'SETOPT'"
 
     getDepth = do
       line <- getLine
@@ -96,7 +98,7 @@ repl = do
           case TR.readMaybe (drop 5 line) :: Maybe Int of 
             Just i -> return $ Right i
             Nothing -> return $ Left "Please enter an Int as depth"
-        _ | all (flip elem " \t") line -> getDepth -- Just a whitespace line
+        _ | all (flip elem " \t") line || isPrefixOf "--" line -> getDepth -- Just a whitespace line
         _ -> return $ Left "Please input the DEPTH <i> to check, after the TOKENS decl"
 
     init_ stab stmts amms users = do
@@ -117,7 +119,7 @@ repl = do
                 Left e -> do {putStrLn e; init_ stab stmts amms users}
                 Right (r, stab') -> do 
                     init_ stab' (stmts ++ r) amms (user : users)
-            Nothing -> if all (flip elem "\t\n ") line 
+            Nothing -> if all (flip elem "\t\n ") line || isPrefixOf "--" line
                        then init_ stab stmts amms users 
                        else return . Left $ "failed to parse: " ++ line
 
@@ -144,7 +146,7 @@ repl = do
               constrain_txs nextLine decs (reqs ++ [txcon], avails, frees)
             Nothing -> putError line decs txcons
         "BEGIN" -> return $ Right (stab, stmts, amms, users, Just txcons)
-        _ | all (flip elem "\n\t ") line-> do {l <- getLine; constrain_txs l decs txcons}
+        _ | isPrefixOf "--" line || all (flip elem "\n\t ") line-> do {l <- getLine; constrain_txs l decs txcons}
         _ -> putError line decs txcons
       where
         putError line tup consts = return . Left $ "error: couldn't parse: " ++ show line
@@ -183,7 +185,7 @@ repl = do
                   constrain stab' (acc ++ [MAX exp (LReal 0)])
             Left e    -> return $ Left e
         'E':'N':'D':s -> return $ Right acc
-        _ | all (flip elem "\t\n ") line -> constrain stab acc
+        _ | isPrefixOf "--" line || all (flip elem "\t\n ") line -> constrain stab acc
         _ -> return . Left $ "failed to parse: " ++ line
 
     check buildQuery [] guesses = pure Nothing

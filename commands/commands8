@@ -1,18 +1,20 @@
 SETOPT DECIMAL
 TOKENS (t0, t1)
-DEPTH 3
+DEPTH 4
 
 AMM t0t1 (12 : t0, 12 : t1)
 
-USER aleks   (6 : t0, 6 : t1)
-USER alberto (6 : t0, 6 : t1)
+USER A (0 : t0, 6 : t1)
+USER B (4 : t0, 0 : t1)
+USER V (10 : t0, 10 : t1)
 
-REQUIRED (alberto, 6 : t0, 4 : t1)
-REQUIRED (aleks, 20 : t0, 4 : t1)
-FREE (aleks)
+REQUIRED (A, 6 : t1, 4 : t0)
+REQUIRED (B, 4 : t0, 3 : t1)
+FREE (V)
 
 BEGIN
 
-MAX aleks.t0 + aleks.t1
+MAX V.t0 + V.t1
+EF A.t0 >= 4 && B.t1 >= 3
 
 END
