@@ -122,16 +122,17 @@ getCombinations' useFee (samms, susers) txcons k =
       token_pairs  = S.fromList token_pairs'
       names         = map name susers
       free_names    = S.fromList free
-      required_txs  = S.fromList req
+      req_txns      = map (\tx -> (tx, Util.count (==tx) req)) (nub req)
       combinations  = [TxCon n t0 t1 Nothing Nothing | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
                                                       S.member n free_names, (S.member (t0, t1) token_pairs) 
                                                       || (S.member (t1, t0) token_pairs) ]
       combinations' = combinations ++ avail ++ req
       ks            = [0..k]
-      guesses       = map (getGuesses combinations' required_txs (length req)) ks
-  in  if useFee then Right guesses else Right $ map (filter check_adjacent_txns) guesses
+      guesses       = map (getGuesses combinations' req_txns (length req)) ks
+  in  if useFee || isJust txcons then Right guesses else Right $ map (filter check_adjacent_txns) guesses
   where
-    getGuesses combs reqs num_reqs k = [x | x <- sequence $ replicate k combs, (Util.count (flip S.member reqs) x) == num_reqs]
+    getGuesses combs req_txns num_reqs k = [x | x <- sequence $ replicate k combs, 
+                                            all (\(tx, c) -> Util.count (==tx) x >= c) req_txns]
     check_adjacent_txns [] = True
     check_adjacent_txns (tx:[]) = True
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs

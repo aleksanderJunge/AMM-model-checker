@@ -125,20 +125,20 @@ repl = do
       case line of
         _ | isPrefixOf "FREE" line -> 
           case TR.readMaybe line :: Maybe TxFree of
-            Just (TxFree names) -> do 
+            Just (TxFree names) ->
               if (not . null) frees then return . Left $ "error, FREE (...) already declared"
               else do
                 nextLine <- getLine
                 constrain_txs nextLine decs (reqs, avails, names)
             Nothing -> putError line decs txcons
-        'A':'V':'A':'I':'L':'A':'B':'L':'E':rest -> do
-          case TR.readMaybe rest :: Maybe TxCon of
+        _ | isPrefixOf "AVAILABLE" line ->
+          case TR.readMaybe (drop 9 line) :: Maybe TxCon of
             Just txcon -> do
               nextLine <- getLine
               constrain_txs nextLine decs (reqs, avails ++ [txcon], frees)
             Nothing -> putError line decs txcons
-        'R':'E':'Q':'U':'I':'R':'E':'D':rest     ->
-          case TR.readMaybe rest :: Maybe TxCon of
+        _ | isPrefixOf "REQUIRED" line ->
+          case TR.readMaybe (drop 8 line) :: Maybe TxCon of
             Just txcon -> do
               nextLine <- getLine
               constrain_txs nextLine decs (reqs ++ [txcon], avails, frees)

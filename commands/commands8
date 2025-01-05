@@ -1,0 +1,18 @@
+SETOPT DECIMAL
+TOKENS (t0, t1)
+DEPTH 3
+
+AMM t0t1 (12 : t0, 12 : t1)
+
+USER aleks   (6 : t0, 6 : t1)
+USER alberto (6 : t0, 6 : t1)
+
+REQUIRED (alberto, 6 : t0, 4 : t1)
+REQUIRED (aleks, 20 : t0, 4 : t1)
+FREE (aleks)
+
+BEGIN
+
+MAX aleks.t0 + aleks.t1
+
+END
