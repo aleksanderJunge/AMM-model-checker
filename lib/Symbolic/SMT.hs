@@ -137,10 +137,10 @@ getCombinations' useFee (samms, susers) txcons k =
     check_adjacent_txns (tx:[]) = True
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
         where 
-            check_tx tx []          = True
-            check_tx tx@(TxCon n t t' _ _) ((TxCon n' t'' t''' _  _):txs)
-                | n == n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = False
-                | n /= n' && ((t == t'' && t' == t''') || (t == t''' && t' == t'' )) = True
+            check_tx tx [] = True
+            check_tx tx@(TxCon n t0 t1 _ _) ((TxCon n' t0' t1' _  _):txs)
+                | n == n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = False
+                | n /= n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = True
                 | otherwise = check_tx tx txs
 
 getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxCon]]]
