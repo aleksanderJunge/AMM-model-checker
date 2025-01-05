@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Symbolic.Interpreter.Parser where
 
 import Data.Maybe
@@ -15,9 +17,7 @@ import Data.Char
 import Text.Read hiding (prec)
 import Debug.Trace
 
-type ToParse = ParseHelper Expr UnOp BinOp
-
-parse :: Env String SType -> String -> Either String Expr
+parse :: Env String SType -> String -> Either String (Expr, ExpType)
 parse stab input = 
   let string_depth = mergeToks . splitWhen' . reverse $ readParens [] input 0
   in if isLeft string_depth then Left "failed to parse string depth" else
@@ -25,9 +25,9 @@ parse stab input =
     in if any isLeft (map fst string_depth') then Left . concat . intersperse "\n" $ lefts (map fst string_depth') else 
     let tokens_depth = Util.mapFst fromRight' string_depth'
     in case parseRec tokens_depth of
-      Right [(Done exp, _)] -> Right exp
+      Right [(Done (exp, t), _)] -> Right (exp, t)
       Right _ -> Left "parsing didn't result in single exp"
-      Left e  -> Left e
+      Left e  -> Left $ e ++ "\nin expression:\n" ++ input
   where 
     parseRec :: [(ToParse, Int)] -> Either String [(ToParse, Int)]
     parseRec [single] = Right [single]
@@ -40,7 +40,7 @@ parse stab input =
             Right exp -> parseRec (front ++ [(Done exp, max_depth - 1)] ++ back)
             Left e    -> Left e
 
-    parse' :: [ToParse] -> Either String Expr -- assumes a flat structure with no parenthesis
+    parse' :: [ToParse] -> Either String (Expr, ExpType) -- assumes a flat structure with no parenthesis
     parse' [(Done exp)] = Right exp
     parse' a        = 
       let precs     = map prec a
@@ -51,14 +51,37 @@ parse stab input =
           Nothing       -> Left "out of bounds idx access when looking for operator"
           Just (UnO u)  -> let operand = get_adj_exp a (idx + 1)
                            in if isLeft operand then operand else 
-                           let exp     = UnOp u (fromRight' operand)
-                           in parse' $ (take idx a) ++ [Done exp] ++ (drop ( idx + 2) a)
+                           let (exp, t) = fromRight' operand in
+                           case u of
+                            Not ->  if t == TRational then Left "error: expected boolean argument to 'not'"
+                                    else let (exp', t') = (UnOp u (exp), TBool)
+                                         in parse' $ (take idx a) ++ [Done (exp', t')] ++ (drop ( idx + 2) a)
           Just (BinO b) -> let operand1 = get_adj_exp a (idx - 1)
                            in if isLeft operand1 then operand1 else 
                            let operand2 = get_adj_exp a (idx + 1) 
                            in if isLeft operand2 then operand2 else 
-                           let exp      = BinOp b (fromRight' operand1) (fromRight' operand2)
-                           in parse' $ (take (idx - 1) a) ++ [Done exp] ++ (drop ( idx + 2) a)
+                           let (exp1, t1) = fromRight' operand1
+                               (exp2, t2) = fromRight' operand2
+                           in case b of
+                                b' | elem b' [Or, And, Implies] -> -- bools input & output
+                                  if t1 == TRational then Left $ "left argument of "  ++ (show b) ++ " is rational, but expected bool" else
+                                  if t2 == TRational then Left $ "right argument of " ++ (show b) ++ " is rational, but expected bool"
+                                  else let done_exp = (BinOp b exp1 exp2, TBool) 
+                                       in parse' $ (take (idx - 1) a) ++ [Done done_exp] ++ (drop ( idx + 2) a)
+                                b' | elem b' [Add, Sub, Mul, Div] -> -- real inputs & real output
+                                  if t1 == TBool then Left $ "left argument of "  ++ (show b) ++ " is bool, but expected rational" else
+                                  if t2 == TBool then Left $ "right argument of " ++ (show b) ++ " is bool, but expected rational"
+                                  else let done_exp = (BinOp b exp1 exp2, TRational) 
+                                       in parse' $ (take (idx - 1) a) ++ [Done done_exp] ++ (drop ( idx + 2) a)
+                                b' | elem b' [Lt, Gt, Gteq] -> -- real input & bool output 
+                                  if t1 == TBool then Left $ "left argument of "  ++ (show b) ++ " is bool, but expected rational" else
+                                  if t2 == TBool then Left $ "right argument of " ++ (show b) ++ " is bool, but expected rational"
+                                  else let done_exp = (BinOp b exp1 exp2, TBool) 
+                                       in parse' $ (take (idx - 1) a) ++ [Done done_exp] ++ (drop ( idx + 2) a)
+                                b' | elem b' [Distinct, Eq] -> -- any input & bool output
+                                  if t1 /= t2 then Left $ "mismatching types for the arguments of " ++ (show b) else 
+                                  let done_exp = (BinOp b exp1 exp2, TBool) 
+                                  in parse' $ (take (idx - 1) a) ++ [Done done_exp] ++ (drop ( idx + 2) a)
           _             -> error "Trying to re-eval an already evaled exp"
 
     get_adj_exp a i =
@@ -66,7 +89,7 @@ parse stab input =
           Nothing         -> Left "adjacent expr was not accessible"
           Just (UnO _)    -> Left "unop (unop expr): not supported (not necessary so far)"
           Just (BinO _)   -> Left "Found 2 operands next to each other"
-          Just (Done exp) -> Right exp
+          Just (Done (exp, t)) -> Right (exp, t)
 
     tokenize :: Env String SType -> String -> Either String ToParse
     tokenize stab s =
@@ -77,10 +100,10 @@ parse stab input =
             Just bino -> Right . BinO $ bino
             Nothing   -> do
               case toVal s :: Maybe Rational of 
-                Just r -> Right . Done $ LReal r
+                Just r -> Right . Done $ (LReal r, TRational)
                 Nothing -> 
                   case toVar stab s of
-                    Right exp -> return . Done $ exp
+                    Right exp -> return . Done $ (exp, TRational)
                     Left err  -> Left err
     toVar stab "" = Left "indexing empty string"
     toVar stab n = 

@@ -15,6 +15,6 @@ FREE (V)
 BEGIN
 
 MAX V.t0 + V.t1
-EF A.t0 >= 4 && B.t1 >= 3
+EF A.t1 = A.t0 >= 4 && B.t1 >= 3
 
 END

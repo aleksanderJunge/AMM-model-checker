@@ -156,11 +156,13 @@ repl = do
       case line of
         'I':'N':'I':'T':s -> 
           case parse stab s of
-            Right exp -> constrain stab (acc ++ [INIT exp])
+            Right (exp, t) | t == TBool -> constrain stab (acc ++ [INIT exp])
+            Right (exp, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
             Left e    -> return . Left $ e
         'E':'F':s   ->
           case parse stab s of
-            Right exp -> constrain stab (acc ++ [EF exp])
+            Right (exp, t) | t == TBool -> constrain stab (acc ++ [EF exp])
+            Right (exp, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
             Left e    -> return . Left $ e
         'E':'U':s   ->
           let (blank1, rest1) = readUntil '(' s
@@ -170,14 +172,17 @@ repl = do
           in if any ((==) "!") [blank1, exp1, blank2, exp2] 
              then return . Left $ "failed reading EU, syntax is: EU (exp1) (exp2)" 
              else case parse stab exp1 of
-               Right exp1 ->
+               Right (_, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
+               Right (exp1, t1) | t1 == TBool ->
                  case parse stab exp2 of
-                   Right exp2 -> constrain stab (acc ++ [EU exp1 exp2])
+                   Right (_, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
+                   Right (exp2, t2) | t2 == TBool -> constrain stab (acc ++ [EU exp1 exp2])
                    Left e -> return . Left $ "failed to parse second expression: " ++ e
                Left e    -> return . Left $ "failed to parse first expression: " ++ e
         'M':'A':'X':s -> 
           case parse stab s of
-            Right exp -> do 
+            Right (_, t) | t == TBool -> return . Left $ "The output of the maximization constraint:\n" ++ (show line) ++ "\nis a bool, but expected a rational"
+            Right (exp, t) | t == TRational -> do 
               case get stab "exp_to_maximize" of
                 Just _  -> return . Left $ "error: the name exp_to_maximize already exists in symtab!"
                 Nothing -> do

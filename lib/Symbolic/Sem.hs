@@ -135,7 +135,11 @@ instance Show Expr where
 -- Parses our text into either a nullary, unary or binary expression
 data ParseHelper a b c = Done a | UnO b | BinO c
 
-prec :: (ParseHelper Expr UnOp BinOp) -> Maybe Int
+type ToParse = ParseHelper (Expr, ExpType) UnOp BinOp
+
+data ExpType = TBool | TRational deriving (Show, Eq)
+
+prec :: (ParseHelper (Expr, ExpType) UnOp BinOp) -> Maybe Int
 prec (Done _)        = return (-1)
 prec (BinO Implies)  = return 1
 prec (BinO Or  )     = return 2
