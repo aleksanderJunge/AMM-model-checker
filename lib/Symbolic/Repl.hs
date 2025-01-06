@@ -67,10 +67,10 @@ repl = do
                                 res@(Just (depth, model, txs)) -> do
                                     putStrLn $ "Solution found at depth " ++ (show depth)
                                     model' <- model
-                                    let ftpr0r1  = read_model stab'' txs model'
-                                        model''  = zip ftpr0r1 txs
+                                    let ftpfr0r1  = read_model stab'' txs model'
+                                        model''  = zip ftpfr0r1 txs
                                         to_print = map print_txn model''
-                                        amms     = pair_amms_tx stab'' txs
+                                        --amms     = pair_amms_tx stab'' txs
                                     mapM putStrLn to_print
                                     return $ Right ()
 
@@ -311,7 +311,7 @@ repl = do
       in if length pairs /= length unjust then Left "one amm pair not found" else 
       let unwrapped = catMaybes $ map (\case {(n, DAmm t0 t1) -> return (n, t0, t1); _ -> Nothing}) unjust
           withdir = zipWith3 (\(n, t0, t1) (TxCon _ t0' t1' _ _) i -> 
-            if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i) else ("r" +@ n +@ i, "l" +@ n +@ i)) 
+            if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i, "fee" +@ n) else ("r" +@ n +@ i, "l" +@ n +@ i, "fee" +@ n)) 
               unwrapped txns (map show [1..(length txns)])
       in return withdir
     
@@ -321,30 +321,32 @@ repl = do
           from    = map snd . sort $ (filter (\(f, s)-> (take 4 f) == "from") pairs')
           to      = map snd . sort $ (filter (\(f, s)-> (take 2 f) == "to") pairs')
           payout  = map snd . sort $ (filter (\(f, s)-> (take 6 f) == "payout") pairs')
-          (r0s, r1s) = unzip $ fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
-          r0s'    = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r0s
-          r1s'    = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r1s
+          (r0s, r1s, fees) = unzip3 $ fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
+          r0s'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r0s
+          r1s'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r1s
+          fees'   = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) fees
+          fees''  = if null fees' then replicate (length txs) "0" else fees'
           r0sprev = map prev r0s
           r1sprev = map prev r1s
-          r0s''   = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r0sprev
-          r1s''   = map (\r -> snd $ (filter (\(f, s) -> (take (length r) f) == r) pairs') !! 0) r1sprev
-      in zip5 from to payout (zip r0s'' r0s') (zip r1s'' r1s')
+          r0s''   = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r0sprev
+          r1s''   = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r1sprev
+      in zip6 from to payout fees'' (zip r0s'' r0s') (zip r1s'' r1s')
       where 
         prev s =
           let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
           in (take (length s - 1) s) ++ (show $ time - 1)
 
-    print_txn ((f,t,p, (r0p, r0c), (r1p, r1c)),(TxCon sender t0 t1 _ _)) = 
+    print_txn ((f,t,p, fee, (r0p, r0c), (r1p, r1c)),(TxCon sender t0 t1 _ _)) = 
       let t' = stringToRational t
           p' = stringToRational p
           was_rejected = p' < t'
       in
       unlines $ 
       [ --sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
-        sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
+        sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ", " ++ fee ++ ": fee)"
       , if was_rejected && (not . null) t' && (not . null) p' then 
         sender ++ ": transaction REJECTED! as " ++ t ++ " > " ++ p else -- ++ " ("++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")" else 
-        sender ++ ": <--- receives(" ++ p ++ " : " ++ t1 ++ ") --- (" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")"
+        sender ++ ": <--- receives(" ++ p ++ " : " ++ t1 ++ ") --- (" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ", " ++ fee ++ ": fee)"
       ]
       --sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
   

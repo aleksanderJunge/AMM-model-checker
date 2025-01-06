@@ -196,7 +196,7 @@ makeAmm :: SAMM -> Symtable -> Either String ([Assert], Symtable)
 makeAmm (SAMM n (v, t) (v', t') fee) stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"
     else if any (\case DAmm t0 t1 -> elem t0 [t, t'] && elem t1 [t, t']; _ -> False) (codomain stab)
-    then Left $ "AMM on token pair: (" ++ (show t) ++ " , " ++ show (t') ++ ") already exists!"
+    then Left $ "AMM on token pair: (" ++ t ++ " , " ++ t' ++ ") already exists!"
     else if not (checkTok stab t)  then Left $ "Token: " ++ t  ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else if not (checkTok stab t') then Left $ "Token: " ++ t' ++ " doesn't exist" ++ " in stab: " ++ (show stab)
     else 
