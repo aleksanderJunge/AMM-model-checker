@@ -3,11 +3,11 @@ DEPTH 3
 
 AMM t0t1 (12 : t0, 12  : t1)
 
-USER aleks   (4.4 : t1)
-USER alberto (1.6 : t1)
+USER A (4.4 : t1)
+USER B (1.6 : t1)
 
 BEGIN
 
-EF   aleks.t0 = 3 && alberto.t0 = 1
+EF   A.t0 = 3 && B.t0 = 1
 
 END

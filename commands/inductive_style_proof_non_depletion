@@ -3,7 +3,7 @@ DEPTH 1
 
 AMM t0t1 (_ : t0, _ : t1)
 
-USER aleks   (_: t0, _ : t1)
+USER A   (_: t0, _ : t1)
 
 BEGIN
 

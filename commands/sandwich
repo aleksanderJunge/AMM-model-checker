@@ -4,14 +4,14 @@ DEPTH 3
 
 AMM t0t1 (16 : t0, 9 : t1)
 
-USER aleks   (6 : t0, 6 : t1)
-USER alberto (6 : t0, 6 : t1)
+USER A   (6 : t0, 6 : t1)
+USER B (6 : t0, 6 : t1)
 
-AVAILABLE (alberto, 6 : t0, 4 : t1)
-FREE (aleks)
+AVAILABLE (B, 6 : t0, 4 : t1)
+FREE (A)
 
 BEGIN
 
-MAX aleks.t0 + aleks.t1
+MAX A.t0 + A.t1
 
 END
