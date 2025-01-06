@@ -323,41 +323,44 @@ repl = do
           to      = map snd . sort $ (filter (\(f, s)-> (take 2 f) == "to") pairs')
           payout  = map snd . sort $ (filter (\(f, s)-> (take 6 f) == "payout") pairs')
           ((r0s, r1s, fees), (froms, tos)) = fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
-          r0sprev = map prev r0s
-          r1sprev = map prev r1s
-          fromsprev = map prev froms
-          tosprev = map prev tos
-          tosprev'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) tosprev
-          fromsprev'  = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) fromsprev
-          tos'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) tos
-          froms'  = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) froms
-          r0s'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r0s
-          r1s'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r1s
+          r0sprev    = map prev r0s
+          r1sprev    = map prev r1s
+          fromsprev  = map prev froms
+          tosprev    = map prev tos
+          tosprev'   = getval tosprev pairs'
+          fromsprev' = getval fromsprev pairs'
+          tos'       = getval tos pairs'
+          froms'     = getval froms pairs'
+          r0s'       = getval r0s pairs'
+          r1s'       = getval r1s pairs'
+          r0sprev'   = getval r0sprev pairs'
+          r1sprev'   = getval r1sprev pairs'
           fees'   = map (\r -> filter (\(f, _) -> (take (length r) f) == r) pairs') fees
           fees''  = if any null fees' then replicate (length txs) "0" else map (snd . (!! 0)) fees'
-          r0s''   = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r0sprev
-          r1s''   = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r1sprev
-      in zip7 from to payout fees'' (zip r0s'' r0s') (zip r1s'' r1s') (zip4 fromsprev' froms' tosprev' tos')
+      in zip7 from to payout fees'' (zip r0sprev' r0s') (zip r1sprev' r1s') (zip4 fromsprev' froms' tosprev' tos')
       where 
         prev s =
           let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
           in (take (length s - 1) s) ++ (show $ time - 1)
-        --getval s = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) s
+        getval fields p = map (\field -> snd $ (filter (\(f, _) -> take (length field) f == field) p) !! 0) fields
 
     print_txn ((f,t,p, fee, (r0p, r0c), (r1p, r1c), (frp, fr, top, to)),(TxCon sender t0 t1 _ _)) = 
       let t' = stringToRational t
           p' = stringToRational p
           was_rejected = p' < t'
-      in
-      unlines $ 
-      [ --sender ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ")"
-        sender ++ "[" ++ frp ++ " : " ++ t0 ++ ", " ++ top ++ " : " ++ t1 ++ "]" ++ ": ---  swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 
-               ++ ") ---> (" ++ r0p ++ " : " ++ t0 ++ ", " ++ r1p ++ " : " ++ t1 ++ ", " ++ fee ++ ": fee)"
-      , if was_rejected && (not . null) t' && (not . null) p' then 
-        sender ++ "[" ++ frp ++ " : " ++ t0 ++ ", " ++ top ++ " : " ++ t1 ++ "]" ++  ": transaction REJECTED! as " ++ t ++ " > " ++ p else -- ++ " ("++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ")" else 
-        sender ++ "[" ++ fr ++ " : " ++ t0 ++ ", " ++ to ++ " : " ++ t1 ++ "]" ++ ": <--- receives(" ++ p ++ " : " ++ t1 ++ ") --- (" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ ", " ++ fee ++ ": fee)"
+          sender_and_message = sender ++ "[" ++ frp ++ ":" ++ t0 ++ ", " ++ top ++ ":" ++ t1 ++ "]"
+                                      ++ " --- swap(" ++ f ++ ":" ++ t0 ++ ", " ++ t ++ ":" ++ t1  ++ ")"
+          receiver_and_message = if was_rejected && (not . null) t' && (not . null) p' then 
+              sender ++ "[" ++ frp ++ ":" ++ t0 ++ ", " ++ top ++ ":" ++ t1 ++ "]" ++  " transaction REJECTED! as " ++ t ++ " > " ++ p else
+              sender ++ "[" ++ fr ++ ":" ++ t0 ++ ", " ++ to ++ ":" ++ t1 ++ "]" ++ " <--- receives(" ++ p ++ ":" ++ t1 ++ ")"
+          old_amm = "(" ++ r0p ++ ":" ++ t0 ++ ", " ++ r1p ++ ":" ++ t1 ++ ", " ++ fee ++ ":fee)"
+          new_amm = "(" ++ r0c ++ ":" ++ t0 ++ ", " ++ r1c ++ ":" ++ t1 ++ ", " ++ fee ++ ":fee)"
+          recv_padding = "---" ++ (replicate (length sender_and_message - length receiver_and_message) '-')
+          send_padding = "--" ++ (replicate (length receiver_and_message - length sender_and_message) '-') ++ ">"
+      in unlines $ 
+      [ sender_and_message ++ send_padding ++ old_amm
+      , receiver_and_message ++ recv_padding ++ new_amm
       ]
-      --sender ++ ": swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ") <---" ++ p
   
 -- takes as input a model output, and splits it into sub-terms
 toTerms :: String -> [(String, String)]
