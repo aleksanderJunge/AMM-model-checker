@@ -155,16 +155,20 @@ repl = do
       line <- getLine
       case line of
         'I':'N':'I':'T':s -> 
-          case parse stab s of
+          if any (\case INIT _ -> True; _ -> False) acc then return . Left $ "Only 1 INIT line is supported (conjunctions '&&' can be used to add more constraints)"
+          else case parse stab s of
             Right (exp, t) | t == TBool -> constrain stab (acc ++ [INIT exp])
             Right (exp, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
             Left e    -> return . Left $ e
         'E':'F':s   ->
-          case parse stab s of
+          if any (\case EF _ -> True; EU _ _ -> True; _ -> False) acc then return . Left $ "Only 1 EF / EU query at a time is supported"
+          else case parse stab s of
             Right (exp, t) | t == TBool -> constrain stab (acc ++ [EF exp])
             Right (exp, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
             Left e    -> return . Left $ e
         'E':'U':s   ->
+          if any (\case EF _ -> True; EU _ _ -> True; _ -> False) acc then return . Left $ "Only 1 EF / EU query at a time is supported"
+          else 
           let (blank1, rest1) = readUntil '(' s
               (exp1,   rest2) = readUntil ')' rest1
               (blank2, rest3) = readUntil '(' rest2
@@ -180,7 +184,8 @@ repl = do
                    Left e -> return . Left $ "failed to parse second expression: " ++ e
                Left e    -> return . Left $ "failed to parse first expression: " ++ e
         'M':'A':'X':s -> 
-          case parse stab s of
+          if any (\case MAX _ _ -> True; _ -> False) acc then return . Left $ "Only 1 MAX-imization constraint is supported"
+          else case parse stab s of
             Right (_, t) | t == TBool -> return . Left $ "The output of the maximization constraint:\n" ++ (show line) ++ "\nis a bool, but expected a rational"
             Right (exp, t) | t == TRational -> do 
               case get stab "exp_to_maximize" of
