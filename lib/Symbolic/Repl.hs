@@ -355,8 +355,8 @@ repl = do
               sender ++ "[" ++ fr ++ ":" ++ t0 ++ ", " ++ to ++ ":" ++ t1 ++ "]" ++ " <---receives(" ++ p ++ ":" ++ t1 ++ ")"
           old_amm = "(" ++ r0p ++ ":" ++ t0 ++ ", " ++ r1p ++ ":" ++ t1 ++ ", " ++ fee ++ ":fee)"
           new_amm = "(" ++ r0c ++ ":" ++ t0 ++ ", " ++ r1c ++ ":" ++ t1 ++ ", " ++ fee ++ ":fee)"
-          recv_padding = "---" ++ (replicate (length sender_and_message - length receiver_and_message) '-')
-          send_padding = "--" ++ (replicate (length receiver_and_message - length sender_and_message) '-') ++ ">"
+          recv_padding = "---" ++ (replicate (length sender_and_message - length receiver_and_message) '-') ++ " "
+          send_padding = "--" ++ (replicate (length receiver_and_message - length sender_and_message) '-') ++ "> "
       in unlines $ 
       [ sender_and_message ++ send_padding ++ old_amm
       , receiver_and_message ++ recv_padding ++ new_amm
