@@ -324,8 +324,8 @@ repl = do
           (r0s, r1s, fees) = unzip3 $ fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
           r0s'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r0s
           r1s'    = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r1s
-          fees'   = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) fees
-          fees''  = if null fees' then replicate (length txs) "0" else fees'
+          fees'   = map (\r -> filter (\(f, _) -> (take (length r) f) == r) pairs') fees
+          fees''  = if any null fees' then replicate (length txs) "0" else map (snd . (!! 0)) fees'
           r0sprev = map prev r0s
           r1sprev = map prev r1s
           r0s''   = map (\r -> snd $ (filter (\(f, _) -> (take (length r) f) == r) pairs') !! 0) r0sprev

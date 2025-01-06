@@ -1,0 +1,15 @@
+TOKENS (t0, t1, t2, t3, t4)
+DEPTH 4
+
+AMM t0t1 (100 : t0, 100 : t1)
+AMM t1t2 (100 : t1, 100 : t2)
+AMM t2t3 (100 : t2, 100 : t3)
+AMM t3t4 (100 : t3, 100 : t4)
+
+USER aleks (100 : t0)
+
+BEGIN
+
+EF aleks.t0 = 0 && aleks.t1 = 0 && aleks.t2 = 0 && aleks.t3 = 0
+
+END

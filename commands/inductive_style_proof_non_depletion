@@ -7,6 +7,6 @@ USER aleks   (_: t0, _ : t1)
 
 BEGIN
 
-EF   t0t1.t0 < 0%1 || t0t1.t1 < 0%1
+EF   t0t1.t0 < 0 || t0t1.t1 < 0
 
 END

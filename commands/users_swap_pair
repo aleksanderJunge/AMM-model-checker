@@ -1,0 +1,14 @@
+TOKENS (t0, t1, t2)
+DEPTH 4
+
+AMM t0t1 (12 : t0, 12 : t1)
+AMM t1t2 (12 : t1, 12 : t2)
+
+USER aleks   (6 : t0)
+USER alberto (6 : t2)
+
+BEGIN
+
+EF   aleks.t2 = 6 && alberto.t0 = 6
+
+END
