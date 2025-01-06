@@ -110,13 +110,13 @@ repl = do
       else case TR.readMaybe line :: Maybe SAMM of
         Just samm -> do
           case makeAmm samm stab of
-            Left e -> do {putStrLn e; init_ stab stmts amms users}
+            Left e -> return $ Left e
             Right (r, stab') -> init_ stab' (stmts ++ r) (samm : amms) users
         Nothing ->
             case TR.readMaybe line :: Maybe SUser of 
             Just user ->
                 case makeUser user stab of
-                Left e -> do {putStrLn e; init_ stab stmts amms users}
+                Left e -> return $ Left e
                 Right (r, stab') -> do 
                     init_ stab' (stmts ++ r) amms (user : users)
             Nothing -> if all (flip elem "\t\n ") line || isPrefixOf "--" line
