@@ -3,10 +3,10 @@ name:               amm-check
 version:            0.1.0.0
 
 -- A short (one-line) description of the package.
--- synopsis: Liquidity saving mechanism for AMMs using netting on a queue.
+-- synopsis: A model checker for AMMs
 
 -- A URL where users can report bugs.
--- bug-reports: https://github.com/aleksanderJunge/AMM-netting-inspired-protocol/issues
+-- bug-reports: https://github.com/aleksanderJunge/thesis/issues
 
 -- The license under which the package is released.
 -- license: GNU General Public License version 3
@@ -17,7 +17,7 @@ version:            0.1.0.0
 -- An email address to which users can send suggestions, bug reports, and patches.
 -- maintainer: ajunge123@gmail.com
 
-library netting-lib
+library check-lib
     exposed-modules: Symbolic.Repl,
                      Symbolic.Sem,
                      Symbolic.Interpreter.Parser,
@@ -49,7 +49,7 @@ executable amm-check
     -- other-extensions:
     -- TODO: remove ghc and other dependencies, oince these are moved into lib
     build-depends:    base >=4.18.0.0 && <= 4.20.0.0, 
-                      netting-lib,
+                      check-lib,
                       containers,
                       process,
                       ghc
