@@ -14,7 +14,6 @@ import qualified Data.Set as S
 import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
-import Debug.Trace
 
 data Query = EU Expr Expr | EF Expr | INIT Expr | MAX Expr Expr
   deriving (Show) --TODO: remove this
@@ -128,12 +127,15 @@ getCombinations' useFee (samms, susers) txcons k =
                                                       || (S.member (t1, t0) token_pairs) ]
       combinations' = combinations ++ avail ++ req
       ks            = [0..k]
-      guesses       = map (getGuesses combinations' req_txns avail (length req)) ks
+      guesses       = map (getGuesses combinations' req_txns avail) ks
   in  if useFee || isJust txcons then Right guesses else Right $ map (filter check_adjacent_txns) guesses
   where
-    getGuesses combs req_txs avail_txs num_reqs k = 
+    getGuesses combs req_txs avail_txs k = 
       [x | x <- sequence $ replicate k combs, 
-           all (\(tx, c) -> (Util.count (==tx) x - Util.count (==tx) avail_txs) == c) req_txs]
+           all (\(tx, c) -> let occ_guess = Util.count (==tx) x
+                                occ_avail = Util.count (==tx) avail_txs
+                             in occ_guess >= c && occ_guess <= c + occ_avail) req_txs]
+                            
     check_adjacent_txns [] = True
     check_adjacent_txns (tx:[]) = True
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
