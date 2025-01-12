@@ -8,8 +8,4 @@ AMM t1t2 (1000 : t1, 1000 : t2, _ : fee)
 USER A (50 : t0, 0 : t1)
 USER B (50 : t1, 0 : t2)
 
-BEGIN
-
 EF A.t0 = 0 && B.t1 = 0 && A.t1 = B.t2
-
-END

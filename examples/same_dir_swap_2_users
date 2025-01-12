@@ -6,8 +6,4 @@ AMM t0t1 (12 : t0, 12  : t1)
 USER A (4.4 : t1)
 USER B (1.6 : t1)
 
-BEGIN
-
 EF   A.t0 = 3 && B.t0 = 1
-
-END

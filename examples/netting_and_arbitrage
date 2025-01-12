@@ -12,9 +12,5 @@ REQUIRED (A, 6 : t1, 4 : t0)
 REQUIRED (B, 4 : t0, 3 : t1)
 FREE (V)
 
-BEGIN
-
 MAX V.t0 + V.t1
 EF A.t0 >= 4 && B.t1 >= 3
-
-END

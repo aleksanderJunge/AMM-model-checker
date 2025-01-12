@@ -5,11 +5,6 @@ AMM t0t1 (100 : t0, 100 : t1)
 AMM t1t2 (100 : t1, 100 : t2)
 AMM t2t3 (100 : t2, 100 : t3)
 AMM t3t4 (100 : t3, 100 : t4)
-
 USER A (100 : t0)
 
-BEGIN
-
 EF A.t0 = 0 && A.t1 = 0 && A.t2 = 0 && A.t3 = 0
-
-END

@@ -19,6 +19,7 @@ import qualified Data.Map as M
 import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
+import System.IO.Error
 import System.Process ( readProcessWithExitCode )
 import Control.Monad
 import Control.Monad.Extra
@@ -38,13 +39,13 @@ repl = do
           amm_and_user_decls <- init_ stab' [] [] []
           case amm_and_user_decls of
             Left e -> return $ Left e
-            Right (stab'', stmts, amms, users, txconsts) -> do
+            Right (stab'', stmts, amms, users, line, txconsts) -> do
               let useFee        = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
                   defaultFees   = if useFee then setDefaultFees amms [] else []
                   usingRational = not . null $ find (\case Precision Nothing -> True; _ -> False) opts
               if usingRational && isJust txconsts then return . Left $ "Must use decimal numbers when adding constraints on transactions"
               else do 
-                constraints' <- constrain stab'' []
+                constraints' <- constrain stab'' line []
                 case constraints' of
                   Left e -> return $ Left e
                   Right constraints -> do
@@ -102,7 +103,7 @@ repl = do
 
     init_ stab stmts amms users = do
       line <- getLine
-      if isPrefixOf "BEGIN" line then return $ Right (stab, stmts, amms, users, Nothing)
+      if any (flip isPrefixOf line) ["EU", "EF", "MAX"] then return $ Right (stab, stmts, amms, users, line, Nothing)
       else if isPrefixOf "REQUIRED" line
            || isPrefixOf "FREE" line
            || isPrefixOf "AVAILABLE" line then constrain_txs line (stab, stmts, amms, users) ([],[],[])
@@ -144,25 +145,24 @@ repl = do
               nextLine <- getLine
               constrain_txs nextLine decs (reqs ++ [txcon], avails, frees)
             Nothing -> putError line decs txcons
-        "BEGIN" -> return $ Right (stab, stmts, amms, users, Just txcons)
+        _ | any (flip isPrefixOf line) ["EU", "EF", "MAX"]  -> return $ Right (stab, stmts, amms, users, line, Just txcons)
         _ | isPrefixOf "--" line || all (flip elem "\n\t ") line-> do {l <- getLine; constrain_txs l decs txcons}
         _ -> putError line decs txcons
       where
         putError line tup consts = return . Left $ "error: couldn't parse: " ++ show line
 
-    constrain stab acc = do
-      line <- getLine
-      case line of
+    constrain stab line acc = do
+      case line of --replace with guards
         'I':'N':'I':'T':s -> 
           if any (\case INIT _ -> True; _ -> False) acc then return . Left $ "Only 1 INIT line is supported (conjunctions '&&' can be used to add more constraints)"
           else case parse stab s of
-            Right (exp, t) | t == TBool -> constrain stab (acc ++ [INIT exp])
+            Right (exp, t) | t == TBool -> do {line' <- getLineCheckEOF; constrain stab line' (acc ++ [INIT exp])}
             Right (exp, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
             Left e    -> return . Left $ e
         'E':'F':s   ->
           if any (\case EF _ -> True; EU _ _ -> True; _ -> False) acc then return . Left $ "Only 1 EF / EU query at a time is supported"
           else case parse stab s of
-            Right (exp, t) | t == TBool -> constrain stab (acc ++ [EF exp])
+            Right (exp, t) | t == TBool -> do {line' <- getLineCheckEOF; constrain stab line' (acc ++ [EF exp])}
             Right (exp, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
             Left e    -> return . Left $ e
         'E':'U':s   ->
@@ -179,7 +179,7 @@ repl = do
                Right (exp1, t1) | t1 == TBool ->
                  case parse stab exp2 of
                    Right (_, t) | t == TRational -> return . Left $ "The output of the constraint:\n" ++ (show line) ++ "\nis a rational, but expected bool"
-                   Right (exp2, t2) | t2 == TBool -> constrain stab (acc ++ [EU exp1 exp2])
+                   Right (exp2, t2) | t2 == TBool -> do {line' <- getLineCheckEOF; constrain stab line' (acc ++ [EU exp1 exp2])}
                    Left e -> return . Left $ "failed to parse second expression: " ++ e
                Left e    -> return . Left $ "failed to parse first expression: " ++ e
         'M':'A':'X':s -> 
@@ -191,11 +191,13 @@ repl = do
                 Just _  -> return . Left $ "error: the name exp_to_maximize already exists in symtab!"
                 Nothing -> do
                   let stab' = bind stab ("exp_to_maximize", Symval)
-                  constrain stab' (acc ++ [MAX exp (LReal 0)])
+                  line' <- getLineCheckEOF
+                  constrain stab' line' (acc ++ [MAX exp (LReal 0)])
             Left e    -> return $ Left e
         'E':'N':'D':s -> return $ Right acc
-        _ | isPrefixOf "--" line || all (flip elem "\t\n ") line -> constrain stab acc
+        _ | isPrefixOf "--" line || all (flip elem "\t\n ") line -> do {line' <- getLineCheckEOF; constrain stab line' acc}
         _ -> return . Left $ "failed to parse: " ++ line
+        where getLineCheckEOF = catchIOError getLine (\e -> if isEOFError e then return "END" else ioError e)
 
     check buildQuery [] guesses = pure Nothing
     check buildQuery ks []      = pure Nothing 

@@ -3,15 +3,10 @@ TOKENS (t0, t1)
 DEPTH 3
 
 AMM t0t1 (16 : t0, 9 : t1)
-
 USER A   (6 : t0, 6 : t1)
 USER B (6 : t0, 6 : t1)
 
 AVAILABLE (B, 6 : t0, 4 : t1)
 FREE (A)
 
-BEGIN
-
 MAX A.t0 + A.t1
-
-END
