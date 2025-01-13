@@ -103,7 +103,7 @@ repl = do
 
     init_ stab stmts amms users = do
       line <- getLine
-      if any (flip isPrefixOf line) ["EU", "EF", "MAX"] then return $ Right (stab, stmts, amms, users, line, Nothing)
+      if any (flip isPrefixOf line) ["EU", "EF", "MAX", "INIT"] then return $ Right (stab, stmts, amms, users, line, Nothing)
       else if isPrefixOf "REQUIRED" line
            || isPrefixOf "FREE" line
            || isPrefixOf "AVAILABLE" line then constrain_txs line (stab, stmts, amms, users) ([],[],[])
@@ -145,7 +145,7 @@ repl = do
               nextLine <- getLine
               constrain_txs nextLine decs (reqs ++ [txcon], avails, frees)
             Nothing -> putError line decs txcons
-        _ | any (flip isPrefixOf line) ["EU", "EF", "MAX"]  -> return $ Right (stab, stmts, amms, users, line, Just txcons)
+        _ | any (flip isPrefixOf line) ["EU", "EF", "MAX", "INIT"]  -> return $ Right (stab, stmts, amms, users, line, Just txcons)
         _ | isPrefixOf "--" line || all (flip elem "\n\t ") line-> do {l <- getLine; constrain_txs l decs txcons}
         _ -> putError line decs txcons
       where
