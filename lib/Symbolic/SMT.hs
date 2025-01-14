@@ -141,10 +141,9 @@ getCombinations' useFee (samms, susers) txcons k =
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
         where 
             check_tx tx [] = True
-            check_tx tx@(TxCon n t0 t1 _ _) ((TxCon n' t0' t1' _  _):txs)
-                | n == n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = False
-                | n /= n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = True
-                | otherwise = check_tx tx txs
+            check_tx tx@(TxCon n t0 t1 _ _) txs = any (\(TxCon n' t0' t1' _ _) -> 
+                      (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||         -- different sender, on same AMM
+                      (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) txs -- same sender, on different AMM
 
 getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxCon]]]
 getCombinations useFee (samms, susers) k =
@@ -165,10 +164,9 @@ getCombinations useFee (samms, susers) k =
     check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
         where 
             check_tx tx [] = True
-            check_tx tx@(TxCon n t0 t1 _ _) ((TxCon n' t0' t1' _  _):txs)
-                | n == n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = False
-                | n /= n' && ((t0 == t0' && t1 == t1') || (t0 == t1' && t1 == t0' )) = True
-                | otherwise = check_tx tx txs
+            check_tx tx@(TxCon n t0 t1 _ _) txs = any (\(TxCon n' t0' t1' _ _) -> 
+                      (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||         -- different sender, on same AMM
+                      (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) txs -- same sender, on different AMM
 
 posBalAssertion :: [SUser] -> [String] -> Int -> String
 posBalAssertion users toks k =

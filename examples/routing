@@ -1,0 +1,10 @@
+TOKENS (t0, t1, t2)
+DEPTH 4
+
+AMM t0t1 (8 : t0, 18 : t1)
+AMM t1t2 (16 : t1, 9 : t2)
+AMM t2t0 (36 : t2, 4 : t0)
+
+USER A (10 : t1)
+
+MAX A.t0
