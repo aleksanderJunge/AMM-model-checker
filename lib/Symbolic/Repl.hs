@@ -259,7 +259,7 @@ repl = do
             lo = maximum (map (snd3 . fst) candidates) -- lower bound known so far
             hi = if null gt0 then Just $ toRational 0 else Nothing -- upper bound 0, if all lteq 0
 
-        intervals <- mapM (find_interval buildQuery queries to_maximize k (lo, hi)) guesses
+        intervals <- mapM (find_interval buildQuery queries to_maximize k (lo, hi)) (map snd candidates)
         let max_val'    = maximum (map (liftM fst . snd3) (filter fst3 intervals)) -- lower bound more important than upper bound, thus selecting max lo
         if null max_val' then pure Nothing else 
           let max_val = fromJust max_val'
@@ -267,7 +267,7 @@ repl = do
           in case max_index of 
             (Just i) -> 
               let ((lo,hi), out) = (\(b, lh, out) -> (fromJust lh, out)) (intervals !! i)
-              in pure $ Just ((lo,hi), out, guesses !! i)
+              in pure $ Just ((lo,hi), out, (map snd candidates) !! i)
             _ -> pure Nothing
 
         where 
