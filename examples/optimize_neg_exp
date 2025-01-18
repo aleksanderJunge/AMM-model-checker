@@ -1,0 +1,13 @@
+SETOPT DECIMAL
+TOKENS (t0, t1)
+DEPTH 3
+
+AMM t0t1 (12 : t0, 12 : t1)
+
+USER A   (6 : t0, 6 : t1)
+USER B   (60 : t0, 60 : t1)
+
+REQUIRED (A, 6 : t0, 4 : t1)
+FREE (B)
+
+MAX (A.t0 + A.t1) - (B.t0 + B.t1)

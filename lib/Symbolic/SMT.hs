@@ -15,7 +15,7 @@ import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
 
-data Query = EU Expr Expr | EF Expr | INIT Expr | MAX Expr Expr
+data Query = EU Expr Expr | EF Expr | INIT Expr | MAX Expr (Maybe Expr)
   deriving (Show) --TODO: remove this
 
 type Symtable = Env String SType
@@ -46,7 +46,7 @@ buildSMTQuery opts (samms, susers, assertions) useFee stab toks queries guess k 
     ++ unlines (map (show . Assert . decorateWithDepth k) [ exp | EF exp <- queries])
     ++ unlines (concat $ map (\(i, exps) -> map (show . Assert . decorateWithDepth i) exps) (zip [0..k-1] (replicate k [ exp1 | EU exp1 exp2 <- queries])))
     ++ unlines (map (show . Assert . decorateWithDepth k) [ exp2 | EU exp1 exp2 <- queries])
-    ++ (case listToMaybe max_query of Just (tm, gv) -> buildMaxExp (decorateWithDepth k tm) (decorateWithDepth k gv); _ -> [])
+    ++ (case listToMaybe max_query of Just (tm, gv) -> buildMaxExp (decorateWithDepth k tm) (decorateWithDepth k <$> gv); _ -> [])
     ++ unlines ["(check-sat)"]
     ++ unlines ["(get-model)"]
     -- ++ unlines (getSymVals stab') TODO: add this to print symbolic varaiables at the end again!
@@ -79,8 +79,12 @@ buildSMTQuery opts (samms, susers, assertions) useFee stab toks queries guess k 
                                                 i <- [show k]]
                 in go guesses amms (k + 1) (acc ++ [(feeName, fromVar, toVar, remNames)])
 
-buildMaxExp :: Expr -> Expr -> String
-buildMaxExp exp gt_val =
+buildMaxExp :: Expr -> Maybe Expr -> String
+buildMaxExp exp Nothing =
+  let var_name = "exp_to_maximize"
+  in unlines $ (map show [DeclVar var_name TReal]) ++ map show
+    [ Assert $ eq (Var var_name) exp ]
+buildMaxExp exp (Just gt_val) =
   let var_name = "exp_to_maximize"
   in unlines $ (map show [DeclVar var_name TReal]) ++ map show
     [ Assert $ eq (Var var_name) exp
@@ -145,8 +149,8 @@ getCombinations' useFee (samms, susers) txcons k =
               case findIndex (\(TxCon n' t0' t1' _ _) -> n' == n && all (flip elem [t0',t1']) [t0,t1]) txs of 
                   Nothing -> True -- no identical tx found in remainder
                   Just i  -> any (\(TxCon n' t0' t1' _ _) -> 
-                          (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||         -- different sender, on same AMM
-                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (take (i-1) txs) -- same sender, on different AMM
+                          (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||  -- different sender, on same AMM
+                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (drop 1 txs) -- same sender, on different AMM
 
 getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxCon]]]
 getCombinations useFee (samms, susers) k =
@@ -172,7 +176,7 @@ getCombinations useFee (samms, susers) k =
                   Nothing -> True -- no identical tx found in remainder
                   Just i  -> any (\(TxCon n' t0' t1' _ _) -> 
                           (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||         -- different sender, on same AMM
-                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (take (i-1) txs) -- same sender, on different AMM
+                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (drop 1 txs) -- same sender, on different AMM
 
 posBalAssertion :: [SUser] -> [String] -> Int -> String
 posBalAssertion users toks k =
@@ -197,7 +201,6 @@ setDefaultFees ((SAMM n (v, t) (v', t') fee):samms) acc =
   setDefaultFees samms (acc ++ (if fee == None then [Assert $ eq (Var $ "fee_" ++ n) (LReal 0) ] else []))
 
 
--- TODO: enable parsing more numbers and check for subzero
 makeAmm :: SAMM -> Symtable -> Either String ([Assert], Symtable)
 makeAmm (SAMM n (v, t) (v', t') fee) stab =
     if isJust (get stab n) then Left $ n ++ " already declared!"

@@ -192,7 +192,7 @@ repl = do
                 Nothing -> do
                   let stab' = bind stab ("exp_to_maximize", Symval)
                   line' <- getLineCheckEOF
-                  constrain stab' line' (acc ++ [MAX exp (LReal 0)])
+                  constrain stab' line' (acc ++ [MAX exp Nothing])
             Left e    -> return $ Left e
         'E':'N':'D':s -> return $ Right acc
         _ | isPrefixOf "--" line || all (flip elem "\t\n ") line -> do {line' <- getLineCheckEOF; constrain stab line' acc}
@@ -201,7 +201,11 @@ repl = do
 
     check buildQuery [] guesses = pure Nothing
     check buildQuery ks []      = pure Nothing 
-    check buildQuery (k:ks) (guess:guesses) = do
+    check buildQuery (k:ks) (guess:guesses)
+      | null guess = do 
+        putStrLn $ "No transaction combinations to create valid sequence at depth: " ++ show k
+        check buildQuery ks guesses
+      | otherwise = do
         res <- check_at_depth buildQuery k guess
         case res of 
             Nothing  -> check buildQuery ks guesses
@@ -222,7 +226,11 @@ repl = do
 
     check_and_max precision stab buildQuery queries to_maximize [] guesses = pure Nothing
     check_and_max precision stab buildQuery queries to_maximize ks []      = pure Nothing 
-    check_and_max precision stab buildQuery queries to_maximize (k:ks) (guess:guesses) = do
+    check_and_max precision stab buildQuery queries to_maximize (k:ks) (guess:guesses) 
+      | null guess = do 
+          putStrLn $ "No transaction combinations to create valid sequence at depth: " ++ show k
+          check_and_max precision stab buildQuery queries to_maximize ks guesses
+      | otherwise = do
         res <- check_depth_and_max buildQuery queries to_maximize k guess
         let precision' = (\case Precision (Just i) -> i; _ -> 3) precision
         case res of 
@@ -238,9 +246,21 @@ repl = do
               check_and_max precision stab buildQuery queries to_maximize ks guesses
         where
             display n x = (showFFloat (Just n) $ fromRat x) ""
+
     check_depth_and_max buildQuery queries to_maximize k guesses = do
-        intervals <- mapM (\guess -> find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess) guesses
-        let max_val'    = foldl max (Just 0) (map (liftM fst . snd3) (filter fst3 intervals)) -- lower bound more important than upper bound, thus selecting max lo
+        let maxQuery = MAX to_maximize Nothing
+        preliminaries <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
+        let withIndices = zip preliminaries guesses
+            satVals     = (filter (fst3 . fst) withIndices)
+        gt0s <- mapM (check_sat_and_max (buildQuery ((MAX to_maximize (Just $ LReal 0)) : queries)) k) (map snd satVals)
+        let withIndices' = zip gt0s (map snd satVals)
+            (gt0, lteq0)   = partition (fst3 . fst) withIndices'
+            candidates = if null gt0 then lteq0 else gt0
+            lo = maximum (map (snd3 . fst) candidates) -- lower bound known so far
+            hi = if null gt0 then Just $ toRational 0 else Nothing -- upper bound 0, if all lteq 0
+
+        intervals <- mapM (find_interval buildQuery queries to_maximize k (lo, hi)) guesses
+        let max_val'    = maximum (map (liftM fst . snd3) (filter fst3 intervals)) -- lower bound more important than upper bound, thus selecting max lo
         if null max_val' then pure Nothing else 
           let max_val = fromJust max_val'
               max_index = findIndex (\(_, lh, _) -> if isJust lh then (fst $ fromJust lh) == max_val else False) intervals
@@ -249,15 +269,17 @@ repl = do
               let ((lo,hi), out) = (\(b, lh, out) -> (fromJust lh, out)) (intervals !! i)
               in pure $ Just ((lo,hi), out, guesses !! i)
             _ -> pure Nothing
+
         where 
           find_interval buildQuery queries to_maximize k (Just lo, Just hi) guess -- TODO: consider rearranging params so (lo,hi) at back, and partially apply rest
-            | lo / hi >= 0.99 = do
-                let maxQuery = MAX to_maximize (LReal . toRational $ lo)
+            | if hi == 0 then abs lo <= 0.01 else 
+              if lo < 0 then 0.995 * abs lo <= abs hi else lo/hi >= 0.995 = do
+                let maxQuery = MAX to_maximize (Just . LReal . toRational $ lo)
                 res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
                 case res of 
                   (True, Just maxval, out) -> pure (True, Just (maxval, hi), out)
                   (_, _, out) -> do -- Try again, as 'lo' might actually have been the max value, in which case exp_to_max > lo -> unsat
-                    let maxQuery' = MAX to_maximize (LReal . toRational $ lo - 1 / 1e30) -- subtract small number
+                    let maxQuery' = MAX to_maximize (Just . LReal . toRational $ lo - 1 / 1e30) -- subtract small number
                     res' <- check_sat_and_max (buildQuery (maxQuery' : queries)) k guess 
                     case res' of 
                       (True, Just maxval, out) -> pure (True, Just (maxval, maxval), out) -- should be maxval exactly in this case
@@ -265,26 +287,34 @@ repl = do
                     
             | otherwise = do
                 let mid      = toRational $ lo + (hi - lo)/2
-                    maxQuery = MAX to_maximize (LReal mid)
+                    maxQuery = MAX to_maximize (Just $ LReal mid)
                 res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
                 case res of
                   (True, Just maxval, out) -> find_interval buildQuery queries to_maximize k (Just mid, Just hi) guess --upper half
                   _ -> find_interval buildQuery queries to_maximize k (Just lo, Just mid) guess --lower half
                     
+          find_interval buildQuery queries to_maximize k (Nothing, Just hi) guess = do
+                let maxQuery = MAX to_maximize Nothing
+                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
+                case res of
+                  (True, Just val, out) | val > hi -> find_interval buildQuery queries to_maximize k (Just hi, Just val) guess
+                  (True, Just val, out)            -> find_interval buildQuery queries to_maximize k (Just val, Just hi) guess
+                  (_, _, out) -> pure (False, Nothing, out)
+
           find_interval buildQuery queries to_maximize k (Just lo, Nothing) guess = do
-                let hi      = lo * 2
-                    maxQuery = MAX to_maximize (LReal hi)
+                let hi      = (\case GT -> lo * 2; EQ -> 0; LT -> lo / 2) (compare lo 0)
+                    maxQuery = MAX to_maximize (Just $ LReal hi)
                 res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
                 case res of
                   (True, Just maxval, out) -> find_interval buildQuery queries to_maximize k (Just hi, Nothing) guess
                   _ -> find_interval buildQuery queries to_maximize k (Just lo, Just hi) guess
             
           find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess = do
-            let maxQuery = MAX to_maximize (LReal 0)
+            let maxQuery = MAX to_maximize Nothing
             res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
             case res of
-              (True, Just maxval, out) ->
-                find_interval buildQuery queries to_maximize k (Just maxval, Nothing) guess
+              (True, Just val, out) ->
+                find_interval buildQuery queries to_maximize k (Just val, Nothing) guess
               (_, _, out) -> pure (False, Nothing, out)
 
 
@@ -296,8 +326,8 @@ repl = do
             "sat"     -> do 
               let pairs  = toTerms stdout
                   pairs' = filter (\(f, s) -> not $ null f || null s) pairs
-                  maxval = listToMaybe . map snd $ filter (\(f, s)-> (take 15 f) == "exp_to_maximize") pairs'
-              case liftM stringToRational maxval of
+                  val = listToMaybe . map snd $ filter (\(f, s)-> (take 15 f) == "exp_to_maximize") pairs'
+              case liftM stringToRational val of
                 Just r  -> pure (True, r, stdout)
                 -- TODO: remove this trace
                 Nothing -> trace "error: couldn't read exp_to_maximize as a rational!" pure (False, Nothing, stderr)

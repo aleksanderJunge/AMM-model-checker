@@ -15,7 +15,6 @@ import Data.Either
 import Data.Either.Extra
 import Data.Char
 import Text.Read hiding (prec)
-import Debug.Trace
 
 parse :: Env String SType -> String -> Either String (Expr, ExpType)
 parse stab input = 

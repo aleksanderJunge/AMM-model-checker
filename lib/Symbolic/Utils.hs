@@ -1,8 +1,8 @@
 module Symbolic.Utils where 
 
 import Data.Char
+import Data.List
 import Text.Read
-import Debug.Trace
 
 readUntil :: Char -> String -> (String, String)
 readUntil c input = 
@@ -22,8 +22,9 @@ readTokUntil c input =
 s +@ s' = s ++ "_" ++ s'
 
 stringToRational :: String -> Maybe Rational
-stringToRational s =
-    go s [] 1
+stringToRational s
+  | isPrefixOf "(- " s = (0 -) <$> (go (init $ drop 3 s) [] 1)
+  | otherwise = go s [] 1
     where 
         go (i:[]) acc ctr | isNumber i  = readMaybe (acc ++ [i] ++ "%" ++ (show ctr)) :: Maybe Rational
         go (i:s) acc ctr  | isNumber i && ctr >  1 = if (take 1 s) == "?" then readMaybe (acc ++ [i] ++ "%" ++ (show ctr)) :: Maybe Rational else go s (acc ++ [i]) (ctr * 10)
