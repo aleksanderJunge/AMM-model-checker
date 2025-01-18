@@ -150,7 +150,7 @@ getCombinations' useFee (samms, susers) txcons k =
                   Nothing -> True -- no identical tx found in remainder
                   Just i  -> any (\(TxCon n' t0' t1' _ _) -> 
                           (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||  -- different sender, on same AMM
-                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (drop 1 txs) -- same sender, on different AMM
+                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (take i txs) -- same sender, on different AMM
 
 getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxCon]]]
 getCombinations useFee (samms, susers) k =
@@ -176,7 +176,7 @@ getCombinations useFee (samms, susers) k =
                   Nothing -> True -- no identical tx found in remainder
                   Just i  -> any (\(TxCon n' t0' t1' _ _) -> 
                           (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||         -- different sender, on same AMM
-                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (drop 1 txs) -- same sender, on different AMM
+                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (take i txs) -- same sender, on different AMM
 
 posBalAssertion :: [SUser] -> [String] -> Int -> String
 posBalAssertion users toks k =
