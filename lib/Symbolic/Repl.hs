@@ -249,31 +249,59 @@ repl = do
 
     check_depth_and_max buildQuery queries to_maximize k guesses = do
         let maxQuery = MAX to_maximize Nothing
-        preliminaries <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
-        let withIndices = zip preliminaries guesses
-            satVals     = (filter (fst3 . fst) withIndices)
+        satSet <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
+        let satSetI = zip satSet guesses
+            satVals     = (filter (fst3 . fst) satSetI)
         gt0s <- mapM (check_sat_and_max (buildQuery ((MAX to_maximize (Just $ LReal 0)) : queries)) k) (map snd satVals)
         let withIndices' = zip gt0s (map snd satVals)
             (gt0, lteq0)   = partition (fst3 . fst) withIndices'
-            candidates = if null gt0 then lteq0 else gt0
+            (candidates) = if null gt0 then satVals else gt0
             lo = maximum (map (snd3 . fst) candidates) -- lower bound known so far
-            hi = if null gt0 then Just $ toRational 0 else Nothing -- upper bound 0, if all lteq 0
-
-        intervals <- mapM (find_interval buildQuery queries to_maximize k (lo, hi)) (map snd candidates)
-        let max_val'    = maximum (map (liftM fst . snd3) (filter fst3 intervals)) -- lower bound more important than upper bound, thus selecting max lo
-        if null max_val' then pure Nothing else 
-          let max_val = fromJust max_val'
-              max_index = findIndex (\(_, lh, _) -> if isJust lh then (fst $ fromJust lh) == max_val else False) intervals
-          in case max_index of 
-            (Just i) -> 
-              let ((lo,hi), out) = (\(b, lh, out) -> (fromJust lh, out)) (intervals !! i)
-              in pure $ Just ((lo,hi), out, (map snd candidates) !! i)
+        if null gt0 then do
+          maybeInterval <- bin_search buildQuery queries to_maximize k (fromJust lo, 0) (map snd satVals) -- TODO: check fromJust here?
+          case maybeInterval of
+            Just ((b, Just lh, out), txs) -> pure $ Just (lh, out, txs)
             _ -> pure Nothing
+        else do 
+          maybeBounds <- find_loose_bounds buildQuery queries to_maximize k lo (map snd gt0)
+          case maybeBounds of
+            Nothing -> pure Nothing
+            Just ((lo, hi), txs) -> do
+              maybeInterval <- bin_search buildQuery queries to_maximize k (lo, hi) txs
+              case maybeInterval of
+                Just ((b, Just lh, out), txs) -> pure $ Just (lh, out, txs)
+                _ -> pure Nothing
 
         where 
-          find_interval buildQuery queries to_maximize k (Just lo, Just hi) guess -- TODO: consider rearranging params so (lo,hi) at back, and partially apply rest
+          find_loose_bounds buildQuery queries to_maximize k Nothing guesses = pure Nothing
+          find_loose_bounds buildQuery queries to_maximize k (Just lo) guesses = do
+            let maxQuery = MAX to_maximize (Just . LReal $ lo * 2)
+            satSet <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
+            let satSetI = zip satSet guesses
+                satVals = (filter (fst3 . fst) satSetI)
+            if null satVals then pure $ Just ((lo, lo * 2), guesses) else
+              find_loose_bounds buildQuery queries to_maximize k (Just $ lo * 2) (map snd satVals)
+          
+          bin_search buildQuery queries to_maximize k (lo, hi) guesses
             | if hi == 0 then abs lo <= 0.01 else 
               if lo < 0 then 0.995 * abs lo <= abs hi else lo/hi >= 0.995 = do
+                results <- mapM (get_final_interval buildQuery queries to_maximize k (lo, hi)) guesses
+                let resultsI = zip results guesses
+                case filter (fst3 . fst) resultsI of
+                  xs | not $ null xs -> 
+                    let maxv = maximum (map (snd3 . fst) resultsI)
+                    in pure $ find (\((_, lh, _), _) -> lh == maxv) resultsI
+                  [] -> pure Nothing
+            | otherwise = do
+                let mid      = toRational $ lo + (hi - lo)/2
+                    maxQuery = MAX to_maximize (Just $ LReal mid)
+                satSet <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
+                let satSetI = zip satSet guesses
+                    (sat, unsat) = partition (fst3 . fst) satSetI
+                if null sat then bin_search buildQuery queries to_maximize k (lo, mid) (map snd unsat)
+                else bin_search buildQuery queries to_maximize k (mid, hi) (map snd sat)
+            where
+              get_final_interval buildQuery queries to_maximize k (lo, hi) guess = do
                 let maxQuery = MAX to_maximize (Just . LReal . toRational $ lo)
                 res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
                 case res of 
@@ -284,39 +312,6 @@ repl = do
                     case res' of 
                       (True, Just maxval, out) -> pure (True, Just (maxval, maxval), out) -- should be maxval exactly in this case
                       (_, _, out) -> pure (False, Nothing, out) -- Otherwise Just fail TODO: find better solution / informative message here
-                    
-            | otherwise = do
-                let mid      = toRational $ lo + (hi - lo)/2
-                    maxQuery = MAX to_maximize (Just $ LReal mid)
-                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
-                case res of
-                  (True, Just maxval, out) -> find_interval buildQuery queries to_maximize k (Just mid, Just hi) guess --upper half
-                  _ -> find_interval buildQuery queries to_maximize k (Just lo, Just mid) guess --lower half
-                    
-          find_interval buildQuery queries to_maximize k (Nothing, Just hi) guess = do
-                let maxQuery = MAX to_maximize Nothing
-                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
-                case res of
-                  (True, Just val, out) | val > hi -> find_interval buildQuery queries to_maximize k (Just hi, Just val) guess
-                  (True, Just val, out)            -> find_interval buildQuery queries to_maximize k (Just val, Just hi) guess
-                  (_, _, out) -> pure (False, Nothing, out)
-
-          find_interval buildQuery queries to_maximize k (Just lo, Nothing) guess = do
-                let hi      = (\case GT -> lo * 2; EQ -> 0; LT -> lo / 2) (compare lo 0)
-                    maxQuery = MAX to_maximize (Just $ LReal hi)
-                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
-                case res of
-                  (True, Just maxval, out) -> find_interval buildQuery queries to_maximize k (Just hi, Nothing) guess
-                  _ -> find_interval buildQuery queries to_maximize k (Just lo, Just hi) guess
-            
-          find_interval buildQuery queries to_maximize k (Nothing, Nothing) guess = do
-            let maxQuery = MAX to_maximize Nothing
-            res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
-            case res of
-              (True, Just val, out) ->
-                find_interval buildQuery queries to_maximize k (Just val, Nothing) guess
-              (_, _, out) -> pure (False, Nothing, out)
-
 
     check_sat_and_max buildQuery k guess = do
         --putStrLn $ "checking " ++ (show guess)
