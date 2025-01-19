@@ -69,8 +69,8 @@ repl = do
                                     putStrLn $ "Solution found at depth " ++ (show depth)
                                     model' <- model
                                     let ftpfr0r1  = read_model stab'' txs model'
-                                        model''  = zip ftpfr0r1 txs
-                                        to_print = map print_txn model''
+                                        model''  = zip3 ftpfr0r1 txs [1..depth]
+                                        to_print = map create_seqs_tex model''
                                     mapM putStrLn to_print
                                     return $ Right ()
 
@@ -240,9 +240,12 @@ repl = do
             Just ((lo,hi), out, txs) -> do
               putStrLn $ "Solution found at depth " ++ (show k) ++ " with max value in interval: [" ++ (display precision' lo) ++ "; " ++ (display precision' hi) ++ "]"
               let ftpr0r1  = read_model stab txs out
-                  model'  = zip ftpr0r1 txs
-                  to_print = map print_txn model'
+                  model'  = zip3 ftpr0r1 txs [1..k]
+                  toprow_tex = create_top_row $ map (\(_, _, _, _, iams, iusrs) -> (iams, iusrs)) ftpr0r1 
+                  to_print = map create_seqs_tex model'
+              putStrLn toprow_tex
               mapM putStrLn to_print
+              putStrLn create_footer_tex
               check_and_max precision stab buildQuery queries to_maximize ks guesses
         where
             display n x = (showFFloat (Just n) $ fromRat x) ""
@@ -328,8 +331,11 @@ repl = do
                 Nothing -> trace "error: couldn't read exp_to_maximize as a rational!" pure (False, Nothing, stderr)
             otherwise -> pure (False, Nothing, stderr)
 
-    pair_amms_tx stab txns = 
+    pair_vars_to_txn stab txns = 
       let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
+          users = map (\(TxCon n _ _ _ _) -> n) txns
+          tokenUniverse = map fst $ filter (\(k,v) -> case v of DTok -> True; _ -> False) (M.toList stab)
+          init_users = map (\(u, toks) -> (map (\t -> (u +@ t +@ "0", t, u)) toks))  (zip users (replicate (length users) tokenUniverse)) -- e.g. a_t0_0 : t0
           pairs = map (\(TxCon _ t0 t1 _ _) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
                                                                                  (t0' == t1 && t1' == t0); _ -> False}) amms) txns
           unjust = catMaybes pairs
@@ -337,11 +343,32 @@ repl = do
       let unwrapped = catMaybes $ map (\case {(n, DAmm t0 t1) -> return (n, t0, t1); _ -> Nothing}) unjust
           senders   = map (\(TxCon n t0 t1 _ _) -> (n, t0, t1)) txns
           amm_names = zipWith3 (\(n, t0, t1) (TxCon _ t0' t1' _ _) i -> 
-            if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i, "fee" +@ n) else ("r" +@ n +@ i, "l" +@ n +@ i, "fee" +@ n)) 
+            if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i, "fee" +@ n, n) else ("r" +@ n +@ i, "l" +@ n +@ i, "fee" +@ n, n)) 
               unwrapped txns (map show [1..(length txns)])
-          user_names = zipWith (\(n, t0, t1) i -> (n +@ t0 +@ i, n +@ t1 +@ i)) 
-            senders (map show [1..(length txns)])
-      in return (unzip3 amm_names, unzip user_names)
+          init_amms = map (\(n, t0, t1) -> ("l" +@ n +@ "0", "r" +@ n +@ "0", t0, t1, n))  unwrapped -- e.g. (l_t0_0, r_t1_0, t0t1)
+          user_names = zipWith (\(n, t0, t1) i -> (n +@ t0 +@ i, n +@ t1 +@ i)) senders (map show [1..(length txns)])
+      in return (unzip4 amm_names, unzip user_names, unzip5 init_amms, init_users)
+
+    -- used when printing output for tex
+    --read_vars_for_tex stab txns = undefined
+    --  let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
+    --      tokenUniverse = filter (\(k,v) -> case v of DTok -> True; _ -> False) (M.toList stab)
+    --      users = filter ()
+
+      --let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
+      --    pairs = map (\(TxCon _ t0 t1 _ _) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
+      --                                                                           (t0' == t1 && t1' == t0); _ -> False}) amms) txns
+      --    unjust = catMaybes pairs
+      --in if length pairs /= length unjust then Left "one amm pair not found" else 
+      --let unwrapped = catMaybes $ map (\case {(n, DAmm t0 t1) -> return (n, t0, t1); _ -> Nothing}) unjust
+      --    senders   = map (\(TxCon n t0 t1 _ _) -> (n, t0, t1)) txns
+      --    amm_names = zipWith3 (\(n, t0, t1) (TxCon _ t0' t1' _ _) i -> 
+      --      if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i, "fee" +@ n) else ("r" +@ n +@ i, "l" +@ n +@ i, "fee" +@ n)) 
+      --        unwrapped txns (map show [1..(length txns)])
+      --    tokenUniverse = filter (\(k,v) -> case v of DTok -> True; _ -> False) (M.toList stab)
+      --    user_names = zipWith (\(n, t0, t1) i -> (n +@ t0 +@ i, n +@ t1 +@ i)) 
+      --      senders (map show [1..(length txns)])
+      --in return (unzip3 amm_names, unzip user_names)
     
     read_model stab txs model =
       let pairs  = toTerms model
@@ -349,7 +376,11 @@ repl = do
           from    = map snd . sort $ (filter (\(f, s)-> (take 4 f) == "from") pairs')
           to      = map snd . sort $ (filter (\(f, s)-> (take 2 f) == "to") pairs')
           payout  = map snd . sort $ (filter (\(f, s)-> (take 6 f) == "payout") pairs')
-          ((r0s, r1s, fees), (froms, tos)) = fromRight' $ pair_amms_tx stab txs -- TODO: make better error handling here, also below.
+          ((r0s, r1s, fees, ns), (froms, tos), (ls, rs, t0s, t1s, ammkey), iusers) = fromRight' $ pair_vars_to_txn stab txs -- TODO: make better error handling here, also below.
+          --(init_users, init_amms, updated_wals) = if tex_mode then read_vars_for_tex stab txs else ([], [])
+          --init_amms = 
+          (init_ls, init_rs, init_ns) = (getval ls pairs', getval rs pairs', ammkey)
+          init_users = map (\wal -> (getval (map fst3 wal) pairs', map snd3 wal, map thd3 wal)) iusers 
           r0sprev    = map prev r0s
           r1sprev    = map prev r1s
           fromsprev  = map prev froms
@@ -364,14 +395,14 @@ repl = do
           r1sprev'   = getval r1sprev pairs'
           fees'   = map (\r -> filter (\(f, _) -> (take (length r) f) == r) pairs') fees
           fees''  = if any null fees' then replicate (length txs) "0" else map (snd . (!! 0)) fees'
-      in zip7 from to payout fees'' (zip r0sprev' r0s') (zip r1sprev' r1s') (zip4 fromsprev' froms' tosprev' tos')
+      in zip6 (zip4 from to payout fees'') (zip r0sprev' r0s') (zip r1sprev' r1s') (zip4 fromsprev' froms' tosprev' tos') (zip5 init_ls init_rs t0s t1s init_ns) init_users
       where 
         prev s =
           let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
           in (take (length s - 1) s) ++ (show $ time - 1)
         getval fields p = map (\field -> snd $ (filter (\(f, _) -> take (length field) f == field) p) !! 0) fields
 
-    print_txn ((f,t,p, fee, (r0p, r0c), (r1p, r1c), (frp, fr, top, to)),(TxCon sender t0 t1 _ _)) = 
+    print_txn (((f,t,p, fee), (r0p, r0c), (r1p, r1c), (frp, fr, top, to),_,_),(TxCon sender t0 t1 _ _)) = 
       let t' = stringToRational t
           p' = stringToRational p
           was_rejected = p' < t'
@@ -388,7 +419,40 @@ repl = do
       [ sender_and_message ++ send_padding ++ old_amm
       , receiver_and_message ++ recv_padding ++ new_amm
       ]
+
+    create_top_row :: [((String, String, String, String, String), ([String], [String], [String]))] -> String
+    create_top_row init_res = 
+      let amms = map fst init_res
+          users = map (\(vals, toks, names) -> (unwords . intersperse "," $ zipWith (\v t -> v ++ " : " ++ t) vals toks, names !! 0 )) (map snd init_res)
+          front_users = take (div (length users) 2) users
+          back_users  = drop (div (length users) 2) users
+      in unlines $ ["\\begin{figure}[t]\\begin{sequencediagram}\n"] ++ (map create_user front_users) ++ (map create_amm amms) ++ (map create_user back_users) ++ ["\n\\postlevel\n\\postlevel\n\\postlevel"]
+      where
+        create_user (wal, name) = 
+          let header = "\\newthread[gray!10]{"++ name ++ "}{\\shortstack{$\\mathsf{User \\; " ++ name ++ "}$\\\\ \\\\"
+              mid = "    \\begin{tikzpicture}\n            \\node [fill=gray!20,draw=black,thick ,align=center] {$[" ++ wal ++ "$};"
+              footer = "\n    \\end{tikzpicture}}}{}" in header ++ mid ++ footer
+        create_amm (l, r, t0, t1, n) =
+          let header = "\\newthread[gray!10]{" ++ n ++ "}{\\shortstack{$\\mathsf{AMM_1}$\\\\ \n\\begin{tikzpicture}[shape aspect=.2]\n\\tikzset{every node/.style={cylinder, "
+                      ++ "shape border rotate=90, draw,fill=gray!25}}\\node  at (2.5,0) {$\\{"
+              mid = l ++ " : " ++ t0 ++ ", " ++ r ++ " : " ++ t1
+              footer = "\\}$};\\end{tikzpicture}}}{}"
+          in header ++ mid ++ footer
+
+    create_seqs_tex (((f,t,p, fee), (r0p, r0c), (r1p, r1c), (frp, fr, top, to),(init_ls, init_rs, t0s, t1s, init_ns),init_users),(TxCon sender t0 t1 _ _),i) = 
+      let t' = stringToRational t
+          p' = stringToRational p
+          was_rejected = p' < t' in if was_rejected then error "rejected transaction not allowed in tex output" else
+      let header = "    \\begin{messcall}{" ++ sender ++ "}{\\shortstack[c] {\n    \\postlevel\n    \\begin{tikzpicture}\\tikzset{every node/.style={fill=gray!20}}\n    \\node [copy shadow, draw=black,thick ,align=center]\n"
+          swap1  = "    {$s_" ++ (show i) ++ "= \\mathsf{" ++ sender ++ "}\\colon \\rswap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ")$\\\\"
+          swap2  = "    ${\\mathsf{" ++ sender ++ "}[" ++ fr ++ " : " ++ t0 ++ ", " ++ to ++ " : " ++ t1 ++ "]}\\vert\\{" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ "\\}$};"
+          footer = "    \\end{tikzpicture}}}{"++ init_ns ++"}{}\\end{messcall}"
+      in header ++ swap1 ++ swap2 ++ footer
+    
+    create_footer_tex = "  \\end{sequencediagram}\n\\caption{Interaction between two $\\mathsf{Users}$ and two $\\mathsf{AMM}$s.}\n\\label{fig:simultaneous_example}\n\\end{figure}"
   
+
+
 -- takes as input a model output, and splits it into sub-terms
 toTerms :: String -> [(String, String)]
 toTerms model = 
