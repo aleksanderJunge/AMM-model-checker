@@ -33,7 +33,8 @@ library check-lib
                    directory,
                    ghc,
                    extra,
-                   split
+                   split,
+                   time
     hs-source-dirs: lib
     default-language: Haskell2010
 
