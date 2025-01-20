@@ -70,8 +70,11 @@ repl = do
                                     model' <- model
                                     let ftpfr0r1  = read_model stab'' txs model'
                                         model''  = zip3 ftpfr0r1 txs [1..depth]
+                                        top_row_tex = create_top_row $ map (\(_, _, _, _, iams, iusrs) -> (iams, iusrs)) ftpfr0r1 
                                         to_print = map create_seqs_tex model''
+                                    putStrLn top_row_tex
                                     mapM putStrLn to_print
+                                    putStrLn create_footer_tex
                                     return $ Right ()
 
   where
@@ -422,10 +425,10 @@ repl = do
 
     create_top_row :: [((String, String, String, String, String), ([String], [String], [String]))] -> String
     create_top_row init_res = 
-      let amms = map fst init_res
-          users = map (\(vals, toks, names) -> (unwords . intersperse "," $ zipWith (\v t -> v ++ " : " ++ t) vals toks, names !! 0 )) (map snd init_res)
-          front_users = take (div (length users) 2) users
-          back_users  = drop (div (length users) 2) users
+      let amms = nub $  map fst init_res
+          users = nub $ map (\(vals, toks, names) -> (unwords . intersperse "," $ zipWith (\v t -> v ++ " : " ++ t) vals toks, names !! 0 )) (map snd init_res)
+          back_users = take (div (length users) 2) users
+          front_users  = drop (div (length users) 2) users
       in unlines $ ["\\begin{figure}[t]\\begin{sequencediagram}\n"] ++ (map create_user front_users) ++ (map create_amm amms) ++ (map create_user back_users) ++ ["\n\\postlevel\n\\postlevel\n\\postlevel"]
       where
         create_user (wal, name) = 
@@ -444,12 +447,12 @@ repl = do
           p' = stringToRational p
           was_rejected = p' < t' in if was_rejected then error "rejected transaction not allowed in tex output" else
       let header = "    \\begin{messcall}{" ++ sender ++ "}{\\shortstack[c] {\n    \\postlevel\n    \\begin{tikzpicture}\\tikzset{every node/.style={fill=gray!20}}\n    \\node [copy shadow, draw=black,thick ,align=center]\n"
-          swap1  = "    {$s_" ++ (show i) ++ "= \\mathsf{" ++ sender ++ "}\\colon \\rswap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ")$\\\\"
-          swap2  = "    ${\\mathsf{" ++ sender ++ "}[" ++ fr ++ " : " ++ t0 ++ ", " ++ to ++ " : " ++ t1 ++ "]}\\vert\\{" ++ r0c ++ " : " ++ t0 ++ ", " ++ r1c ++ " : " ++ t1 ++ "\\}$};"
+          swap1  = "    {$s_" ++ (show i) ++ "= \\mathsf{" ++ sender ++ "}\\colon \\swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ")$\\\\"
+          swap2  = "    ${\\mathsf{" ++ sender ++ "}[" ++ fr ++ " : " ++ t0 ++ ", " ++ to ++ " : " ++ t1 ++ "]}\\vert\\{" ++ r0c ++ " : " ++ t1 ++ ", " ++ r1c ++ " : " ++ t0 ++ "\\}$};"
           footer = "    \\end{tikzpicture}}}{"++ init_ns ++"}{}\\end{messcall}"
       in header ++ swap1 ++ swap2 ++ footer
     
-    create_footer_tex = "  \\end{sequencediagram}\n\\caption{Interaction between two $\\mathsf{Users}$ and two $\\mathsf{AMM}$s.}\n\\label{fig:simultaneous_example}\n\\end{figure}"
+    create_footer_tex = "  \\end{sequencediagram}\n\\caption{INSERT CAPTION}\n\\label{fig:LABEL}\n\\end{figure}"
   
 
 
