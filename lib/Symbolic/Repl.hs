@@ -437,7 +437,7 @@ repl = do
 --    write_to_tex_fig (((f,t,p, fee), (r0p, r0c), (r1p, r1c), (frp, fr, top, to),(init_ls, init_rs, t0s, t1s, init_ns),init_users),(TxCon sender t0 t1 _ _),i) = 
 --                toprow_tex = create_row $ map (\(_, _, _, _, iams, iusrs) -> (iams, iusrs)) ftpr0r1 
 
-    create_header_tex = "\\begin{figure}[t]\\begin{sequencediagram}\n"
+    create_header_tex = "\\begin{figure}[ht]\\begin{sequencediagram}\n"
     create_sep1_tex = "\n\\postlevel\n\\postlevel\n\\postlevel"
     create_sep2_tex = "    \\end{sequencediagram}\n\n    \\vspace{-5.00mm} \n\n\\begin{sequencediagram}\n"
     create_footer_tex = "  \\end{sequencediagram}\n\\caption{INSERT CAPTION}\n\\label{fig:LABEL}\n\\end{figure}"
@@ -455,7 +455,7 @@ repl = do
               mid = "    \\begin{tikzpicture}\n            \\node [fill=gray!20,draw=black,thick ,align=center] {$[" ++ wal ++ "$};"
               footer = "\n    \\end{tikzpicture}}}{}" in header ++ mid ++ footer
         create_amm (l, r, t0, t1, n) =
-          let header = "\\newthread[gray!10]{" ++ n ++ "}{\\shortstack{$\\mathsf{AMM}$\\\\ \n\\begin{tikzpicture}[shape aspect=.2]\n\\tikzset{every node/.style={cylinder, "
+          let header = "\\newthread[gray!10]{" ++ n ++ "}{\\shortstack{$\\mathsf{AMM}\\:" ++ n ++"$\\\\ \n\\begin{tikzpicture}[shape aspect=.2]\n\\tikzset{every node/.style={cylinder, "
                       ++ "shape border rotate=90, draw,fill=gray!25}}\\node  at (2.5,0) {$\\{"
               mid = l ++ " : " ++ t0 ++ ", " ++ r ++ " : " ++ t1
               footer = "\\}$};\\end{tikzpicture}}}{}"
