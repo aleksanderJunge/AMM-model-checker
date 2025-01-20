@@ -179,7 +179,7 @@ data TxCon = TxCon
 
 data TxFree = TxFree [String] deriving (Show, Eq)
 
-data Opt = Precision (Maybe Int) deriving (Show, Eq)
+data Opt = Precision (Maybe Int) | Tex deriving (Show, Eq)
 
 data SAMM = SAMM
     { ammName :: String

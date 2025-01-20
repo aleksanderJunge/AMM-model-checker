@@ -1,3 +1,4 @@
+SETOPT TEX
 TOKENS (t_0, t_1, t_2)
 DEPTH 3
 
@@ -6,5 +7,5 @@ AMM t1t2 (18 : t_1,  8 : t_2)
 AMM t2t0 (18 : t_2,  8 : t_0)
 USER A (4 : t_0, 2 : t_1, 2 : t_2)
 
---MAX A.t0 + A.t1 + A.t2
+--MAX A.t_0 + A.t_1 + A.t_2
 EF A.t_0 = 6 && A.t_1 = 4 && A.t_2 = 4

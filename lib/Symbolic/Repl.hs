@@ -43,6 +43,7 @@ repl = do
               let useFee        = any (\(SAMM _ _ _ fee) -> case fee of None -> False; _ -> True) amms
                   defaultFees   = if useFee then setDefaultFees amms [] else []
                   usingRational = not . null $ find (\case Precision Nothing -> True; _ -> False) opts
+                  outputTex     = not . null $ find (\case Tex -> True; _ -> False) opts
               if usingRational && isJust txconsts then return . Left $ "Must use decimal numbers when adding constraints on transactions"
               else do 
                 constraints' <- constrain stab'' line []
@@ -59,7 +60,7 @@ repl = do
                         Just (MAX exp _) -> do
                           let queries' = filter (\case MAX _ _ -> False; _ -> True) constraints
                               precision = fromMaybe (Precision $ Just 3) (find (\case Precision (Just i) -> True; _ -> False) opts) 
-                          check_and_max precision stab'' (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp [0..depth] combs
+                          check_and_max precision stab'' (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames) queries' exp outputTex [0..depth] combs
                           return $ Right ()
                         _ -> do
                             satResult <- check (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
@@ -68,14 +69,26 @@ repl = do
                                 res@(Just (depth, model, txs)) -> do
                                     putStrLn $ "Solution found at depth " ++ (show depth)
                                     model' <- model
-                                    let ftpfr0r1  = read_model stab'' txs model'
-                                        model''  = zip3 ftpfr0r1 txs [1..depth]
-                                        top_row_tex = create_top_row $ map (\(_, _, _, _, iams, iusrs) -> (iams, iusrs)) ftpfr0r1 
-                                        to_print = map create_seqs_tex model''
-                                    putStrLn top_row_tex
-                                    mapM putStrLn to_print
-                                    putStrLn create_footer_tex
-                                    return $ Right ()
+                                    if outputTex then do
+                                      let ftpfr0r1  = read_model stab'' txs model'
+                                          model''  = zip3 ftpfr0r1 txs [1..depth]
+                                          top_row_tex = create_row $ map (\(_,  _, _, iams, iusrs, _, _) -> (iams, iusrs)) ftpfr0r1 
+                                          bot_row_tex = create_row $ map (\(_,  _, _, _, _, fams, fusrs) -> (fams, fusrs)) ftpfr0r1 
+                                          txn_seq_tex = map create_seqs_tex model''
+                                      putStrLn create_header_tex
+                                      putStrLn top_row_tex
+                                      putStrLn create_sep1_tex
+                                      mapM putStrLn txn_seq_tex
+                                      putStrLn create_sep2_tex
+                                      putStrLn bot_row_tex
+                                      putStrLn create_footer_tex
+                                      return $ Right ()
+                                    else do
+                                      let ftpfr0r1  = read_model stab'' txs model'
+                                          model''  = zip3 ftpfr0r1 txs [1..depth]
+                                          to_print = map print_txn model''
+                                      mapM putStrLn to_print
+                                      return $ Right ()
 
   where
     toks_ stab opts = do
@@ -227,29 +240,41 @@ repl = do
             "sat"     -> pure (True, stdout)
             otherwise -> pure (False, stderr)
 
-    check_and_max precision stab buildQuery queries to_maximize [] guesses = pure Nothing
-    check_and_max precision stab buildQuery queries to_maximize ks []      = pure Nothing 
-    check_and_max precision stab buildQuery queries to_maximize (k:ks) (guess:guesses) 
+    check_and_max precision stab buildQuery queries to_maximize outputTex [] guesses = pure Nothing
+    check_and_max precision stab buildQuery queries to_maximize outputTex ks []      = pure Nothing 
+    check_and_max precision stab buildQuery queries to_maximize outputTex (k:ks) (guess:guesses) 
       | null guess = do 
           putStrLn $ "No transaction combinations to create valid sequence at depth: " ++ show k
-          check_and_max precision stab buildQuery queries to_maximize ks guesses
+          check_and_max precision stab buildQuery queries to_maximize outputTex ks guesses
       | otherwise = do
         res <- check_depth_and_max buildQuery queries to_maximize k guess
         let precision' = (\case Precision (Just i) -> i; _ -> 3) precision
         case res of 
             Nothing  -> do 
               putStrLn $ "No solution found at depth " ++ (show k)
-              check_and_max precision stab buildQuery queries to_maximize ks guesses
+              check_and_max precision stab buildQuery queries to_maximize outputTex ks guesses
             Just ((lo,hi), out, txs) -> do
               putStrLn $ "Solution found at depth " ++ (show k) ++ " with max value in interval: [" ++ (display precision' lo) ++ "; " ++ (display precision' hi) ++ "]"
-              let ftpr0r1  = read_model stab txs out
-                  model'  = zip3 ftpr0r1 txs [1..k]
-                  toprow_tex = create_top_row $ map (\(_, _, _, _, iams, iusrs) -> (iams, iusrs)) ftpr0r1 
-                  to_print = map create_seqs_tex model'
-              putStrLn toprow_tex
-              mapM putStrLn to_print
-              putStrLn create_footer_tex
-              check_and_max precision stab buildQuery queries to_maximize ks guesses
+              if outputTex then do
+                let ftpfr0r1  = read_model stab txs out
+                    model''  = zip3 ftpfr0r1 txs [1..k]
+                    top_row_tex = create_row $ map (\(_,  _, _, iams, iusrs, _, _) -> (iams, iusrs)) ftpfr0r1 
+                    bot_row_tex = create_row $ map (\(_,  _, _, _, _, fams, fusrs) -> (fams, fusrs)) ftpfr0r1 
+                    txn_seq_tex = map create_seqs_tex model''
+                putStrLn create_header_tex
+                putStrLn top_row_tex
+                putStrLn create_sep1_tex
+                mapM putStrLn txn_seq_tex
+                putStrLn create_sep2_tex
+                putStrLn bot_row_tex
+                putStrLn create_footer_tex
+                check_and_max precision stab buildQuery queries to_maximize outputTex ks guesses
+              else do
+                let ftpfr0r1  = read_model stab txs out
+                    model''  = zip3 ftpfr0r1 txs [1..k]
+                    to_print = map print_txn model''
+                mapM putStrLn to_print
+                check_and_max precision stab buildQuery queries to_maximize outputTex ks guesses
         where
             display n x = (showFFloat (Just n) $ fromRat x) ""
 
@@ -336,9 +361,11 @@ repl = do
 
     pair_vars_to_txn stab txns = 
       let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
+          k = show $ length txns
           users = map (\(TxCon n _ _ _ _) -> n) txns
           tokenUniverse = map fst $ filter (\(k,v) -> case v of DTok -> True; _ -> False) (M.toList stab)
-          init_users = map (\(u, toks) -> (map (\t -> (u +@ t +@ "0", t, u)) toks))  (zip users (replicate (length users) tokenUniverse)) -- e.g. a_t0_0 : t0
+          init_users  = map (\(u, toks) -> (map (\t -> (u +@ t +@ "0", t, u)) toks))  (zip users (replicate (length users) tokenUniverse)) -- e.g. a_t0_0 : t0
+          final_users = map (\(u, toks) -> (map (\t -> (u +@ t +@ k, t, u)) toks))  (zip users (replicate (length users) tokenUniverse)) -- e.g. a_t0_k : t0
           pairs = map (\(TxCon _ t0 t1 _ _) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
                                                                                  (t0' == t1 && t1' == t0); _ -> False}) amms) txns
           unjust = catMaybes pairs
@@ -348,30 +375,10 @@ repl = do
           amm_names = zipWith3 (\(n, t0, t1) (TxCon _ t0' t1' _ _) i -> 
             if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i, "fee" +@ n, n) else ("r" +@ n +@ i, "l" +@ n +@ i, "fee" +@ n, n)) 
               unwrapped txns (map show [1..(length txns)])
-          init_amms = map (\(n, t0, t1) -> ("l" +@ n +@ "0", "r" +@ n +@ "0", t0, t1, n))  unwrapped -- e.g. (l_t0_0, r_t1_0, t0t1)
+          init_amms  = map (\(n, t0, t1) -> ("l" +@ n +@ "0", "r" +@ n +@ "0", t0, t1, n))  unwrapped -- e.g. (l_t0_0, r_t1_0, t0, t1, t0t1)
+          final_amms = map (\(n, t0, t1) -> ("l" +@ n +@ k, "r" +@ n +@ k, t0, t1, n))  unwrapped -- e.g. (l_t0_k, r_t1_k, t0, t1, t0t1)
           user_names = zipWith (\(n, t0, t1) i -> (n +@ t0 +@ i, n +@ t1 +@ i)) senders (map show [1..(length txns)])
-      in return (unzip4 amm_names, unzip user_names, unzip5 init_amms, init_users)
-
-    -- used when printing output for tex
-    --read_vars_for_tex stab txns = undefined
-    --  let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
-    --      tokenUniverse = filter (\(k,v) -> case v of DTok -> True; _ -> False) (M.toList stab)
-    --      users = filter ()
-
-      --let amms  = filter (\(k,v) -> case v of DAmm _ _ -> True; _ -> False) (M.toList stab)
-      --    pairs = map (\(TxCon _ t0 t1 _ _) -> find (\case {(k, DAmm t0' t1') -> (t0' == t0 && t1' == t1) || 
-      --                                                                           (t0' == t1 && t1' == t0); _ -> False}) amms) txns
-      --    unjust = catMaybes pairs
-      --in if length pairs /= length unjust then Left "one amm pair not found" else 
-      --let unwrapped = catMaybes $ map (\case {(n, DAmm t0 t1) -> return (n, t0, t1); _ -> Nothing}) unjust
-      --    senders   = map (\(TxCon n t0 t1 _ _) -> (n, t0, t1)) txns
-      --    amm_names = zipWith3 (\(n, t0, t1) (TxCon _ t0' t1' _ _) i -> 
-      --      if t0 == t0' then ("l" +@ n +@ i, "r" +@ n +@ i, "fee" +@ n) else ("r" +@ n +@ i, "l" +@ n +@ i, "fee" +@ n)) 
-      --        unwrapped txns (map show [1..(length txns)])
-      --    tokenUniverse = filter (\(k,v) -> case v of DTok -> True; _ -> False) (M.toList stab)
-      --    user_names = zipWith (\(n, t0, t1) i -> (n +@ t0 +@ i, n +@ t1 +@ i)) 
-      --      senders (map show [1..(length txns)])
-      --in return (unzip3 amm_names, unzip user_names)
+      in return (unzip4 amm_names, unzip user_names, unzip5 init_amms, init_users, unzip5 final_amms, final_users)
     
     read_model stab txs model =
       let pairs  = toTerms model
@@ -379,11 +386,14 @@ repl = do
           from    = map snd . sort $ (filter (\(f, s)-> (take 4 f) == "from") pairs')
           to      = map snd . sort $ (filter (\(f, s)-> (take 2 f) == "to") pairs')
           payout  = map snd . sort $ (filter (\(f, s)-> (take 6 f) == "payout") pairs')
-          ((r0s, r1s, fees, ns), (froms, tos), (ls, rs, t0s, t1s, ammkey), iusers) = fromRight' $ pair_vars_to_txn stab txs -- TODO: make better error handling here, also below.
+          ((r0s, r1s, fees, ns), (froms, tos), (ls, rs, t0s, t1s, ammkey), iusers, (fls, frs, ft0s, ft1s, fammkey), fusers) 
+            = fromRight' $ pair_vars_to_txn stab txs -- TODO: make better error handling here, also below.
           --(init_users, init_amms, updated_wals) = if tex_mode then read_vars_for_tex stab txs else ([], [])
           --init_amms = 
           (init_ls, init_rs, init_ns) = (getval ls pairs', getval rs pairs', ammkey)
+          (final_ls, final_rs, final_ns) = (getval fls pairs', getval frs pairs', fammkey)
           init_users = map (\wal -> (getval (map fst3 wal) pairs', map snd3 wal, map thd3 wal)) iusers 
+          final_users = map (\wal -> (getval (map fst3 wal) pairs', map snd3 wal, map thd3 wal)) fusers 
           r0sprev    = map prev r0s
           r1sprev    = map prev r1s
           fromsprev  = map prev froms
@@ -398,14 +408,15 @@ repl = do
           r1sprev'   = getval r1sprev pairs'
           fees'   = map (\r -> filter (\(f, _) -> (take (length r) f) == r) pairs') fees
           fees''  = if any null fees' then replicate (length txs) "0" else map (snd . (!! 0)) fees'
-      in zip6 (zip4 from to payout fees'') (zip r0sprev' r0s') (zip r1sprev' r1s') (zip4 fromsprev' froms' tosprev' tos') (zip5 init_ls init_rs t0s t1s init_ns) init_users
+      in zip7 (zip4 from to payout fees'') (zip4 r0sprev' r0s' r1sprev' r1s') (zip4 fromsprev' froms' tosprev' tos') 
+              (zip5 init_ls init_rs t0s t1s init_ns) init_users (zip5 final_ls final_rs ft0s ft1s final_ns) final_users
       where 
         prev s =
           let time = fromMaybe 1 (TR.readMaybe [(s !! (length s - 1) )] :: Maybe Int)
           in (take (length s - 1) s) ++ (show $ time - 1)
         getval fields p = map (\field -> snd $ (filter (\(f, _) -> take (length field) f == field) p) !! 0) fields
 
-    print_txn (((f,t,p, fee), (r0p, r0c), (r1p, r1c), (frp, fr, top, to),_,_),(TxCon sender t0 t1 _ _)) = 
+    print_txn (((f,t,p, fee), (r0p, r0c, r1p, r1c), (frp, fr, top, to),_,_,_,_),(TxCon sender t0 t1 _ _),_) = 
       let t' = stringToRational t
           p' = stringToRational p
           was_rejected = p' < t'
@@ -423,26 +434,34 @@ repl = do
       , receiver_and_message ++ recv_padding ++ new_amm
       ]
 
-    create_top_row :: [((String, String, String, String, String), ([String], [String], [String]))] -> String
-    create_top_row init_res = 
+--    write_to_tex_fig (((f,t,p, fee), (r0p, r0c), (r1p, r1c), (frp, fr, top, to),(init_ls, init_rs, t0s, t1s, init_ns),init_users),(TxCon sender t0 t1 _ _),i) = 
+--                toprow_tex = create_row $ map (\(_, _, _, _, iams, iusrs) -> (iams, iusrs)) ftpr0r1 
+
+    create_header_tex = "\\begin{figure}[t]\\begin{sequencediagram}\n"
+    create_sep1_tex = "\n\\postlevel\n\\postlevel\n\\postlevel"
+    create_sep2_tex = "    \\end{sequencediagram}\n\n    \\vspace{-5.00mm} \n\n\\begin{sequencediagram}\n"
+    create_footer_tex = "  \\end{sequencediagram}\n\\caption{INSERT CAPTION}\n\\label{fig:LABEL}\n\\end{figure}"
+
+    create_row :: [((String, String, String, String, String), ([String], [String], [String]))] -> String
+    create_row init_res = 
       let amms = nub $  map fst init_res
           users = nub $ map (\(vals, toks, names) -> (unwords . intersperse "," $ zipWith (\v t -> v ++ " : " ++ t) vals toks, names !! 0 )) (map snd init_res)
           back_users = take (div (length users) 2) users
           front_users  = drop (div (length users) 2) users
-      in unlines $ ["\\begin{figure}[t]\\begin{sequencediagram}\n"] ++ (map create_user front_users) ++ (map create_amm amms) ++ (map create_user back_users) ++ ["\n\\postlevel\n\\postlevel\n\\postlevel"]
+      in unlines $ (map create_user front_users) ++ (map create_amm amms) ++ (map create_user back_users)
       where
         create_user (wal, name) = 
           let header = "\\newthread[gray!10]{"++ name ++ "}{\\shortstack{$\\mathsf{User \\; " ++ name ++ "}$\\\\ \\\\"
               mid = "    \\begin{tikzpicture}\n            \\node [fill=gray!20,draw=black,thick ,align=center] {$[" ++ wal ++ "$};"
               footer = "\n    \\end{tikzpicture}}}{}" in header ++ mid ++ footer
         create_amm (l, r, t0, t1, n) =
-          let header = "\\newthread[gray!10]{" ++ n ++ "}{\\shortstack{$\\mathsf{AMM_1}$\\\\ \n\\begin{tikzpicture}[shape aspect=.2]\n\\tikzset{every node/.style={cylinder, "
+          let header = "\\newthread[gray!10]{" ++ n ++ "}{\\shortstack{$\\mathsf{AMM}$\\\\ \n\\begin{tikzpicture}[shape aspect=.2]\n\\tikzset{every node/.style={cylinder, "
                       ++ "shape border rotate=90, draw,fill=gray!25}}\\node  at (2.5,0) {$\\{"
               mid = l ++ " : " ++ t0 ++ ", " ++ r ++ " : " ++ t1
               footer = "\\}$};\\end{tikzpicture}}}{}"
           in header ++ mid ++ footer
 
-    create_seqs_tex (((f,t,p, fee), (r0p, r0c), (r1p, r1c), (frp, fr, top, to),(init_ls, init_rs, t0s, t1s, init_ns),init_users),(TxCon sender t0 t1 _ _),i) = 
+    create_seqs_tex (((f,t,p, fee), (r0p, r0c, r1p, r1c), (frp, fr, top, to),(_, _, _, _, init_ns),_, _,_),(TxCon sender t0 t1 _ _),i) = 
       let t' = stringToRational t
           p' = stringToRational p
           was_rejected = p' < t' in if was_rejected then error "rejected transaction not allowed in tex output" else
@@ -451,8 +470,6 @@ repl = do
           swap2  = "    ${\\mathsf{" ++ sender ++ "}[" ++ fr ++ " : " ++ t0 ++ ", " ++ to ++ " : " ++ t1 ++ "]}\\vert\\{" ++ r0c ++ " : " ++ t1 ++ ", " ++ r1c ++ " : " ++ t0 ++ "\\}$};"
           footer = "    \\end{tikzpicture}}}{"++ init_ns ++"}{}\\end{messcall}"
       in header ++ swap1 ++ swap2 ++ footer
-    
-    create_footer_tex = "  \\end{sequencediagram}\n\\caption{INSERT CAPTION}\n\\label{fig:LABEL}\n\\end{figure}"
   
 
 

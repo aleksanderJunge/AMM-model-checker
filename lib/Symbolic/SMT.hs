@@ -29,12 +29,10 @@ buildSMTQuery _ ([], _, _) _ _ _ _ _ _ = Left "Missing AMMS"
 buildSMTQuery _ (_, [], _) _ _ _ _ _ _ = Left "Missing Users"
 --buildSMTQuery (_, _, _) _ _ _ [] _ _ = Left "Missing Query"
 buildSMTQuery opts (samms, susers, assertions) useFee stab toks queries guess k =
-    -- TODO: simplify this if we don't allow for symbolic tokens!
     let swappingAmms = ammsToUse guess samms
         swappingUsers = usersToUse guess susers toks
         max_query     = catMaybes $ map (\case MAX exp gtval -> Just (exp, gtval); _ -> Nothing) queries
-        precision     = fromMaybe (Precision $ Just 3) (find (\case Precision _ -> True) opts) -- in case more opts added later:  _ -> False
-        --stab'        = createSymvals samms stab
+        precision     = fromMaybe (Precision $ Just 3) (find (\case Precision _ -> True; _ -> False) opts)
     in Right $
     unlines ["(set-logic QF_NRA)"]
     ++ (\case Precision Nothing -> ""; Precision (Just i) -> unlines ["(set-option :pp.decimal true)", "(set-option :pp.decimal_precision " ++ show i ++ ")"]) precision
@@ -49,7 +47,6 @@ buildSMTQuery opts (samms, susers, assertions) useFee stab toks queries guess k 
     ++ (case listToMaybe max_query of Just (tm, gv) -> buildMaxExp (decorateWithDepth k tm) (decorateWithDepth k <$> gv); _ -> [])
     ++ unlines ["(check-sat)"]
     ++ unlines ["(get-model)"]
-    -- ++ unlines (getSymVals stab') TODO: add this to print symbolic varaiables at the end again!
     where
       usersToUse guesses users toks =
         go guesses users toks 1 [] 

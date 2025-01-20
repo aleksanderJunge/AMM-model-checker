@@ -147,6 +147,7 @@ instance Read Opt where
     readsPrec _ ('S':'E':'T':'O':'P':'T':input) = 
       let tokens = words input in
       case tokens of
+        ("TEX":rem) -> [(Tex, unwords rem)]
         ("RATIONAL":rem) -> [(Precision Nothing, unwords rem)]
         ("DECIMAL":v:rem) | all isNumber v -> 
           case readMaybe v :: Maybe Int of
