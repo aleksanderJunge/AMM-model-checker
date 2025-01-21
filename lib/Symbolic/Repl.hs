@@ -452,7 +452,7 @@ repl = do
       where
         create_user (wal, name) = 
           let header = "\\newthread[gray!10]{"++ name ++ "}{\\shortstack{$\\mathsf{User \\; " ++ name ++ "}$\\\\ \\\\"
-              mid = "    \\begin{tikzpicture}\n            \\node [fill=gray!20,draw=black,thick ,align=center] {$[" ++ wal ++ "$};"
+              mid = "    \\begin{tikzpicture}\n            \\node [fill=gray!20,draw=black,thick ,align=center] {$[" ++ wal ++ "]$};"
               footer = "\n    \\end{tikzpicture}}}{}" in header ++ mid ++ footer
         create_amm (l, r, t0, t1, n) =
           let header = "\\newthread[gray!10]{" ++ n ++ "}{\\shortstack{$\\mathsf{AMM}\\:" ++ n ++"$\\\\ \n\\begin{tikzpicture}[shape aspect=.2]\n\\tikzset{every node/.style={cylinder, "

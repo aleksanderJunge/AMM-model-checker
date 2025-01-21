@@ -212,7 +212,8 @@ instance Read TxCon where
       let v0' = toVal v0
           v1' = toVal v1 in
       if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
-                           && all (all isAlphaNum) [t0, t1]
+                           && all (all isAlphaNum) [take 1 t0, take 1 t1]
+                           && all (all (\c -> isAlphaNum c || c =='_')) [t0, t1]
                            && (isJust v0' || all (=='_') v0)
                            && (isJust v1' || all (=='_') v1)
       then [(TxCon name t0 t1 v0' v1', rest6)] else []
@@ -286,7 +287,7 @@ instance Read SUser where
                                 t' = concat $ words t 
                                 v'' = toVal v'
                             in if (all isAlphaNum (take 1 t')) && (all (\c -> isAlphaNum c || c=='_') (drop 1 t')) && isJust v'' then Just (t', v'')
-                               else if all isAlphaNum t' && isNothing v'' then Just (t', Nothing)
+                               else if (all isAlphaNum (take 1 t')) && (all (\c -> isAlphaNum c || c=='_') (drop 1 t')) && isNothing v'' then Just (t', Nothing)
                                else Nothing
                         otherwise -> Nothing
     readsPrec _ _ = []
