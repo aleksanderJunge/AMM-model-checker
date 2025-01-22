@@ -147,6 +147,7 @@ instance Read Opt where
     readsPrec _ ('S':'E':'T':'O':'P':'T':input) = 
       let tokens = words input in
       case tokens of
+        ("TEX":rem) -> [(Tex, unwords rem)]
         ("RATIONAL":rem) -> [(Precision Nothing, unwords rem)]
         ("DECIMAL":v:rem) | all isNumber v -> 
           case readMaybe v :: Maybe Int of
@@ -211,7 +212,8 @@ instance Read TxCon where
       let v0' = toVal v0
           v1' = toVal v1 in
       if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
-                           && all (all isAlphaNum) [t0, t1]
+                           && all (all isAlphaNum) [take 1 t0, take 1 t1]
+                           && all (all (\c -> isAlphaNum c || c =='_')) [t0, t1]
                            && (isJust v0' || all (=='_') v0)
                            && (isJust v1' || all (=='_') v1)
       then [(TxCon name t0 t1 v0' v1', rest6)] else []
@@ -229,7 +231,8 @@ instance Read SAMM where
           [_] -> 
             let (t1,   rest)  = readTokUntil ')' rest4 in if t1   == "!" then [] else
             if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
-                                 && all (all isAlphaNum) [t0, t1]
+                                 && all (all isAlphaNum) [take 1 t0, take 1 t1]
+                                 && all (all (\c -> isAlphaNum c || c =='_')) [t0, t1]
                                  && (isJust v0' || all (=='_') v0)
                                  && (isJust v1' || all (=='_') v1)
             then [(SAMM name (v0', t0) (v1', t1) None, rest)]
@@ -240,7 +243,8 @@ instance Read SAMM where
             let vFee'         = toValFee vFee
                 (tFee, rest)  = readTokUntil ')' rest6 in if tFee == "!" then [] else
             if (not . null) name && all (\c -> isAlphaNum c || c == '_') name
-                                && all (all isAlphaNum) [t0, t1]
+                                && all (all isAlphaNum) [take 1 t0, take 1 t1]
+                                && all (all (\c -> isAlphaNum c || c =='_')) [t0, t1]
                                 && (isJust v0' || all (=='_') v0)
                                 && (isJust v1' || all (=='_') v1)
                                 && (isJust (toVal vFee) || all (=='_') vFee)
@@ -282,8 +286,8 @@ instance Read SUser where
                             let v' = concat $ words v
                                 t' = concat $ words t 
                                 v'' = toVal v'
-                            in if all isAlphaNum t' && isJust v'' then Just (t', v'')
-                               else if all isAlphaNum t' && isNothing v'' then Just (t', Nothing)
+                            in if (all isAlphaNum (take 1 t')) && (all (\c -> isAlphaNum c || c=='_') (drop 1 t')) && isJust v'' then Just (t', v'')
+                               else if (all isAlphaNum (take 1 t')) && (all (\c -> isAlphaNum c || c=='_') (drop 1 t')) && isNothing v'' then Just (t', Nothing)
                                else Nothing
                         otherwise -> Nothing
     readsPrec _ _ = []
