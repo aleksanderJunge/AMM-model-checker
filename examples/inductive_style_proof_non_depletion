@@ -4,4 +4,4 @@ DEPTH 1
 AMM t0t1 (_ : t0, _ : t1)
 USER A   (_: t0, _ : t1)
 
-EF   t0t1.t0 < 0 || t0t1.t1 < 0
+EU   (t0t1.t0 > 0 && t0t1.t1 > 0) (t0t1.t0 < 0 || t0t1.t1 < 0)

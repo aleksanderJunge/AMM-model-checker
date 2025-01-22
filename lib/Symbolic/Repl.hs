@@ -65,9 +65,9 @@ repl = do
                         _ -> do
                             satResult <- check (buildSMTQuery opts (amms,users,(stmts ++ defaultFees)) useFee stab'' toknames constraints) [0..depth] combs
                             case satResult of
-                                Nothing -> do {putStrLn "no solution found"; return $ Right ()}
+                                Nothing -> do {hPutStr stderr "\r\ESC[KNo solution found\n"; return $ Right ()}
                                 res@(Just (depth, model, txs)) -> do
-                                    putStrLn $ "Solution found at depth " ++ (show depth)
+                                    hPutStr stderr $ "\r\ESC[KSolution found at depth \n" ++ (show depth)
                                     model' <- model
                                     if outputTex then do
                                       let ftpfr0r1  = read_model stab'' txs model'
@@ -219,7 +219,7 @@ repl = do
     check buildQuery ks []      = pure Nothing 
     check buildQuery (k:ks) (guess:guesses)
       | null guess = do 
-        putStrLn $ "No transaction combinations to create valid sequence at depth: " ++ show k
+        hPutStr stderr $ "\r\ESC[KNo transaction combinations to create valid sequence at depth: " ++ show k ++ "\n"
         check buildQuery ks guesses
       | otherwise = do
         res <- check_at_depth buildQuery k guess
@@ -227,13 +227,17 @@ repl = do
             Nothing  -> check buildQuery ks guesses
             Just (out, txs) -> pure $ Just (k, liftM snd out, txs)
     check_at_depth buildQuery k guesses = do
-        txRes <- findM (\x -> liftM fst $ check_sat buildQuery k x) guesses
+        txRes <- findM (\(x,i) -> liftM fst $ check_sat buildQuery k (i,(length guesses)) x) (zip guesses [1..length guesses])
         case txRes of 
             Nothing -> do 
-                putStrLn $ "No solution found at depth: " ++ (show k)
+                hPutStr stderr $ "\r\ESC[KNo solution found at depth: " ++ (show k) ++ "\n"
                 pure Nothing
-            Just txs -> pure . Just $ (check_sat buildQuery k txs, txs) -- TODO: optimize to not run sat on this twice!
-    check_sat buildQuery k guess = do
+            Just (txs,_) -> pure . Just $ (check_sat buildQuery k (0,0) txs, txs) -- TODO: optimize to not run sat on this twice!
+    check_sat buildQuery k (0,0) guess = check_sat' buildQuery k guess
+    check_sat buildQuery k (i,m) guess = do
+        hPutStr stderr $ "\r\ESC[Kchecking: " ++ show i ++ " / " ++ show m
+        check_sat' buildQuery k guess
+    check_sat' buildQuery k guess = do
         writeFile "/tmp/check_goal.smt2" (case buildQuery guess k of {Left e -> error e; Right r -> r})
         (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
         case take 3 stdout of
@@ -244,17 +248,17 @@ repl = do
     check_and_max precision stab buildQuery queries to_maximize outputTex ks []      = pure Nothing 
     check_and_max precision stab buildQuery queries to_maximize outputTex (k:ks) (guess:guesses) 
       | null guess = do 
-          putStrLn $ "No transaction combinations to create valid sequence at depth: " ++ show k
+          hPutStr stderr $ "\r\ESC[KNo transaction combinations to create valid sequence at depth: " ++ show k ++ "\n"
           check_and_max precision stab buildQuery queries to_maximize outputTex ks guesses
       | otherwise = do
         res <- check_depth_and_max buildQuery queries to_maximize k guess
         let precision' = (\case Precision (Just i) -> i; _ -> 3) precision
         case res of 
             Nothing  -> do 
-              putStrLn $ "No solution found at depth " ++ (show k)
+              hPutStr stderr $ "\r\ESC[KNo solution found at depth " ++ (show k)
               check_and_max precision stab buildQuery queries to_maximize outputTex ks guesses
             Just ((lo,hi), out, txs) -> do
-              putStrLn $ "Solution found at depth " ++ (show k) ++ " with max value in interval: [" ++ (display precision' lo) ++ "; " ++ (display precision' hi) ++ "]"
+              hPutStr stderr $ "\r\ESC[KSolution found at depth " ++ (show k) ++ " with max value in interval: [" ++ (display precision' lo) ++ "; " ++ (display precision' hi) ++ "]\n"
               if outputTex then do
                 let ftpfr0r1  = read_model stab txs out
                     model''  = zip3 ftpfr0r1 txs [1..k]
@@ -280,10 +284,11 @@ repl = do
 
     check_depth_and_max buildQuery queries to_maximize k guesses = do
         let maxQuery = MAX to_maximize Nothing
-        satSet <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
+        satSet <- mapM (\(g,i) -> check_sat_and_max (buildQuery (maxQuery : queries)) k (i, length guesses, Nothing) g) (zip guesses [1.. length guesses])
         let satSetI = zip satSet guesses
             satVals     = (filter (fst3 . fst) satSetI)
-        gt0s <- mapM (check_sat_and_max (buildQuery ((MAX to_maximize (Just $ LReal 0)) : queries)) k) (map snd satVals)
+            toCheck = (map snd satVals)
+        gt0s <- mapM (\(g,i)->check_sat_and_max (buildQuery ((MAX to_maximize (Just $ LReal 0)) : queries)) k (i, length guesses, Just . show . LReal $ 0) g) (zip toCheck ([1.. length toCheck]))
         let withIndices' = zip gt0s (map snd satVals)
             (gt0, lteq0)   = partition (fst3 . fst) withIndices'
             (candidates) = if null gt0 then satVals else gt0
@@ -307,7 +312,7 @@ repl = do
           find_loose_bounds buildQuery queries to_maximize k Nothing guesses = pure Nothing
           find_loose_bounds buildQuery queries to_maximize k (Just lo) guesses = do
             let maxQuery = MAX to_maximize (Just . LReal $ lo * 2)
-            satSet <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
+            satSet <- mapM (\(g,i) -> check_sat_and_max (buildQuery (maxQuery : queries)) k (i, length guesses, Just . show . LReal $ lo*2) g) (zip guesses [1..length guesses])
             let satSetI = zip satSet guesses
                 satVals = (filter (fst3 . fst) satSetI)
             if null satVals then pure $ Just ((lo, lo * 2), guesses) else
@@ -326,7 +331,7 @@ repl = do
             | otherwise = do
                 let mid      = toRational $ lo + (hi - lo)/2
                     maxQuery = MAX to_maximize (Just $ LReal mid)
-                satSet <- mapM (check_sat_and_max (buildQuery (maxQuery : queries)) k) guesses
+                satSet <- mapM (\(g,i) -> check_sat_and_max (buildQuery (maxQuery : queries)) k (i, length guesses, Just . show . LReal $ mid) g) (zip guesses [1.. length guesses])
                 let satSetI = zip satSet guesses
                     (sat, unsat) = partition (fst3 . fst) satSetI
                 if null sat then bin_search buildQuery queries to_maximize k (lo, mid) (map snd unsat)
@@ -334,18 +339,21 @@ repl = do
             where
               get_final_interval buildQuery queries to_maximize k (lo, hi) guess = do
                 let maxQuery = MAX to_maximize (Just . LReal . toRational $ lo)
-                res <- check_sat_and_max (buildQuery (maxQuery : queries)) k guess 
+                res <- check_sat_and_max' (buildQuery (maxQuery : queries)) k guess 
                 case res of 
                   (True, Just maxval, out) -> pure (True, Just (maxval, hi), out)
                   (_, _, out) -> do -- Try again, as 'lo' might actually have been the max value, in which case exp_to_max > lo -> unsat
                     let maxQuery' = MAX to_maximize (Just . LReal . toRational $ lo - 1 / 1e30) -- subtract small number
-                    res' <- check_sat_and_max (buildQuery (maxQuery' : queries)) k guess 
+                    res' <- check_sat_and_max' (buildQuery (maxQuery' : queries)) k guess 
                     case res' of 
                       (True, Just maxval, out) -> pure (True, Just (maxval, maxval), out) -- should be maxval exactly in this case
                       (_, _, out) -> pure (False, Nothing, out) -- Otherwise Just fail TODO: find better solution / informative message here
 
-    check_sat_and_max buildQuery k guess = do
-        --putStrLn $ "checking " ++ (show guess)
+    check_sat_and_max buildQuery k (i,m, v) guess = do
+        hPutStr stderr $ "\r\ESC[Kchecking: " ++ show i ++ " / " ++ show m ++ " paths, checking value: " ++ (fromMaybe "none" v)
+        check_sat_and_max' buildQuery k guess
+    check_sat_and_max' buildQuery k guess = do
+        --hPutStr stderr "\r\ESC[Kchecking " ++ (show guess)
         writeFile "/tmp/check_goal.smt2" (case buildQuery guess k of {Left e -> error e; Right r -> r})
         (code, stdout, stderr) <- readProcessWithExitCode "z3" ["/tmp/check_goal.smt2"] ""
         case take 3 stdout of
