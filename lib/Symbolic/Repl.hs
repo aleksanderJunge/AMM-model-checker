@@ -67,7 +67,7 @@ repl = do
                             case satResult of
                                 Nothing -> do {hPutStr stderr "\r\ESC[KNo solution found\n"; return $ Right ()}
                                 res@(Just (depth, model, txs)) -> do
-                                    hPutStr stderr $ "\r\ESC[KSolution found at depth \n" ++ (show depth)
+                                    hPutStr stderr $ "\r\ESC[KSolution found at depth " ++ (show depth) ++ "\n"
                                     model' <- model
                                     if outputTex then do
                                       let ftpfr0r1  = read_model stab'' txs model'
@@ -255,7 +255,7 @@ repl = do
         let precision' = (\case Precision (Just i) -> i; _ -> 3) precision
         case res of 
             Nothing  -> do 
-              hPutStr stderr $ "\r\ESC[KNo solution found at depth " ++ (show k)
+              hPutStr stderr $ "\r\ESC[KNo solution found at depth " ++ (show k) ++ "\n"
               check_and_max precision stab buildQuery queries to_maximize outputTex ks guesses
             Just ((lo,hi), out, txs) -> do
               hPutStr stderr $ "\r\ESC[KSolution found at depth " ++ (show k) ++ " with max value in interval: [" ++ (display precision' lo) ++ "; " ++ (display precision' hi) ++ "]\n"
