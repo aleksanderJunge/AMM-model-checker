@@ -130,25 +130,13 @@ getCombinations' useFee (samms, susers) txcons k =
       combinations' = combinations ++ avail ++ req
       ks            = [0..k]
       guesses       = map (getGuesses combinations' req_txns avail) ks
-  in  if useFee || isJust txcons then Right guesses else Right $ map (filter check_adjacent_txns) guesses
+  in  Right guesses
   where
     getGuesses combs req_txs avail_txs k = nub $ 
       [x | x <- sequence $ replicate k combs, 
            all (\(tx, c) -> let occ_guess = Util.count (==tx) x
                                 occ_avail = Util.count (==tx) avail_txs
                              in occ_guess >= c && occ_guess <= c + occ_avail) req_txs]
-                            
-    check_adjacent_txns [] = True
-    check_adjacent_txns (tx:[]) = True
-    check_adjacent_txns (tx:txs) = (check_tx tx txs) && check_adjacent_txns txs
-        where 
-            check_tx tx [] = True
-            check_tx tx@(TxCon n t0 t1 _ _) txs = 
-              case findIndex (\(TxCon n' t0' t1' _ _) -> n' == n && all (flip elem [t0',t1']) [t0,t1]) txs of 
-                  Nothing -> True -- no identical tx found in remainder
-                  Just i  -> any (\(TxCon n' t0' t1' _ _) -> 
-                          (n' /= n && all (flip elem [t0',t1']) [t0,t1]) ||  -- different sender, on same AMM
-                          (n' == n && not (all (flip elem [t0',t1']) [t0,t1]))) (take i txs) -- same sender, on different AMM
 
 getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxCon]]]
 getCombinations useFee (samms, susers) k =
