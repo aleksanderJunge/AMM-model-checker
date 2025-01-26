@@ -6,9 +6,9 @@ AMM t0t1 (18 : t_0,  8 : t_1)
 AMM t1t2 (18 : t_1,  8 : t_2)
 AMM t2t0 (18 : t_2,  8 : t_0)
 USER A (4 : t_0, 2 : t_1, 2 : t_2)
-USER B (_ : t_0, _ : t_1, 2 : t_2)
+--USER B (_ : t_0, _ : t_1, 2 : t_2)
 
-AVAILABLE (B, 6 : t_0, 2 : t_1)
+--AVAILABLE (B, 6 : t_0, 2 : t_1)
 FREE (A)
 
 MAX A.t_0 + A.t_1 + A.t_2

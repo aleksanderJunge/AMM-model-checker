@@ -123,20 +123,28 @@ getCombinations' useFee (samms, susers) txcons k =
       token_pairs  = S.fromList token_pairs'
       names         = map name susers
       free_names    = S.fromList free
-      req_txns      = map (\tx -> (tx, Util.count (==tx) req)) (nub req)
       combinations  = [TxCon n t0 t1 Nothing Nothing | n <- names, t0 <- tokens, t1 <- tokens, t0 /= t1, 
                                                       S.member n free_names, (S.member (t0, t1) token_pairs) 
                                                       || (S.member (t1, t0) token_pairs) ]
-      combinations' = combinations ++ avail ++ req
       ks            = [0..k]
-      guesses       = map (getGuesses combinations' req_txns avail) ks
-  in  Right guesses
+  in trace (show . length $ getAtDepth combinations req avail k) Right $ map (getAtDepth combinations req avail) ks
   where
-    getGuesses combs req_txs avail_txs k = nub $ 
-      [x | x <- sequence $ replicate k combs, 
-           all (\(tx, c) -> let occ_guess = Util.count (==tx) x
-                                occ_avail = Util.count (==tx) avail_txs
-                             in occ_guess >= c && occ_guess <= c + occ_avail) req_txs]
+    getAtDepth combs req avail k =
+      let num_req   = length req
+          num_avail = [0..(min (length avail) (k-num_req))]
+          num_free  = reverse [0 .. (k - num_req)]
+          set_avail = map (choose_k avail) num_avail
+          set_free = map (getGuesses' combs) (num_free)
+          avail_and_free = concat $ map (\(a,f) -> concat $ map (permute' f) a) (zip set_avail set_free)
+      in permute' avail_and_free req
+    getGuesses' combs i = sequence $ replicate i combs
+    permute' [] _ = []
+    permute' combs [] = combs
+    permute' combs (elm : elms) = 
+      let i =  (\case h:_ -> length h + 1) combs
+          ith_depth_perms = concat $ map (\(l', i) ->map (\l -> (take i l) ++ [elm] ++ (drop i l)) l') (zip (replicate i $ combs) [0..])
+      in permute' ith_depth_perms elms 
+    choose_k avails k = nubBy (\l l' -> all (flip elem l) l' && all (flip elem l') l) $ map (take k) $ permutations avails
 
 getCombinations :: Bool -> ([SAMM], [SUser]) -> Int -> [[[TxCon]]]
 getCombinations useFee (samms, susers) k =

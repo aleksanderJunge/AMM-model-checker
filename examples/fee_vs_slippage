@@ -5,7 +5,7 @@ DEPTH 2
 AMM t0t1 (100 : t0, 100 : t1)
 AMM t1t2 (1000 : t1, 1000 : t2, _ : fee)
 
-USER A (50 : t0, 0 : t1)
-USER B (50 : t1, 0 : t2)
+USER A (5 : t0, 0 : t1)
+USER B (5 : t1, 0 : t2)
 
 EF A.t0 = 0 && B.t1 = 0 && A.t1 = B.t2
