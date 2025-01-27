@@ -127,7 +127,7 @@ getCombinations' useFee (samms, susers) txcons k =
                                                       S.member n free_names, (S.member (t0, t1) token_pairs) 
                                                       || (S.member (t1, t0) token_pairs) ]
       ks            = [0..k]
-  in trace (show . length $ getAtDepth combinations req avail k) Right $ map (getAtDepth combinations req avail) ks
+  in Right $ map (nub . getAtDepth combinations req avail) ks
   where
     getAtDepth combs req avail k =
       let num_req   = length req
