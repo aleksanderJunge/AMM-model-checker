@@ -427,11 +427,11 @@ repl = do
     print_txn (((f,t,p, fee), (r0p, r0c, r1p, r1c), (frp, fr, top, to),_,_,_,_),(TxCon sender t0 t1 _ _),_) = 
       let t' = stringToRational t
           p' = stringToRational p
-          was_rejected = p' < t'
+          (rejected, msg) = (p' < t' || t' < Just 0, if p' < t' then t ++ " > " ++ p else t ++ " < 0")
           sender_and_message = sender ++ "[" ++ frp ++ ":" ++ t0 ++ ", " ++ top ++ ":" ++ t1 ++ "]"
                                       ++ " ----swap(" ++ f ++ ":" ++ t0 ++ ", " ++ t ++ ":" ++ t1  ++ ")"
-          receiver_and_message = if was_rejected && (not . null) t' && (not . null) p' then 
-              sender ++ "[" ++ frp ++ ":" ++ t0 ++ ", " ++ top ++ ":" ++ t1 ++ "]" ++  " transaction REJECTED! as " ++ t ++ " > " ++ p else
+          receiver_and_message = if rejected && (not . null) t' && (not . null) p' then 
+              sender ++ "[" ++ frp ++ ":" ++ t0 ++ ", " ++ top ++ ":" ++ t1 ++ "]" ++  " transaction REJECTED! as " ++ msg else
               sender ++ "[" ++ fr ++ ":" ++ t0 ++ ", " ++ to ++ ":" ++ t1 ++ "]" ++ " <---receives(" ++ p ++ ":" ++ t1 ++ ")"
           old_amm = "(" ++ r0p ++ ":" ++ t0 ++ ", " ++ r1p ++ ":" ++ t1 ++ ", " ++ fee ++ ":fee)"
           new_amm = "(" ++ r0c ++ ":" ++ t0 ++ ", " ++ r1c ++ ":" ++ t1 ++ ", " ++ fee ++ ":fee)"
