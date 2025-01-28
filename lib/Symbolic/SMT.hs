@@ -14,7 +14,6 @@ import qualified Data.Set as S
 import qualified GHC.Utils.Misc as Util
 import qualified Text.Read as TR
 import System.IO
-import Debug.Trace
 
 data Query = EU Expr Expr | EF Expr | INIT Expr | MAX Expr (Maybe Expr)
   deriving (Show) --TODO: remove this

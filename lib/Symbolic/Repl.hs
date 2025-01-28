@@ -23,7 +23,6 @@ import System.IO.Error
 import System.Process ( readProcessWithExitCode )
 import Control.Monad
 import Control.Monad.Extra
-import Debug.Trace
 
 repl :: IO (Either String ())
 repl = do
@@ -363,8 +362,7 @@ repl = do
                   val = listToMaybe . map snd $ filter (\(f, s)-> (take 15 f) == "exp_to_maximize") pairs'
               case liftM stringToRational val of
                 Just r  -> pure (True, r, stdout)
-                -- TODO: remove this trace
-                Nothing -> trace "error: couldn't read exp_to_maximize as a rational!" pure (False, Nothing, stderr)
+                Nothing -> error "couldn't read exp_to_maximize as a rational!"
             otherwise -> pure (False, Nothing, stderr)
 
     pair_vars_to_txn stab txns = 
@@ -475,7 +473,7 @@ repl = do
           was_rejected = p' < t' in if was_rejected then error "rejected transaction not allowed in tex output" else
       let header = "    \\begin{messcall}{" ++ sender ++ "}{\\shortstack[c] {\n    \\postlevel\n    \\begin{tikzpicture}\\tikzset{every node/.style={fill=gray!20}}\n    \\node [copy shadow, draw=black,thick ,align=center]\n"
           swap1  = "    {$s_" ++ (show i) ++ "= \\mathsf{" ++ sender ++ "}\\colon \\swap(" ++ f ++ " : " ++ t0 ++ ", " ++ t ++ " : " ++ t1 ++ ")$\\\\"
-          swap2  = "    ${\\mathsf{" ++ sender ++ "}[" ++ fr ++ " : " ++ t0 ++ ", " ++ to ++ " : " ++ t1 ++ "]}\\vert\\{" ++ r0c ++ " : " ++ t1 ++ ", " ++ r1c ++ " : " ++ t0 ++ "\\}$};"
+          swap2  = "    ${\\mathsf{" ++ sender ++ "}[" ++ fr ++ " : " ++ t0 ++ ", " ++ to ++ " : " ++ t1 ++ "]}\\vert\\{" ++ r1c ++ " : " ++ t1 ++ ", " ++ r0c ++ " : " ++ t0 ++ "\\}$};"
           footer = "    \\end{tikzpicture}}}{"++ init_ns ++"}{}\\end{messcall}"
       in header ++ swap1 ++ swap2 ++ footer
   
