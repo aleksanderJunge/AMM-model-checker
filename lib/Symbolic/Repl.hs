@@ -287,25 +287,26 @@ repl = do
         let satSetI = zip satSet guesses
             satVals     = (filter (fst3 . fst) satSetI)
             toCheck = (map snd satVals)
-        gt0s <- mapM (\(g,i)->check_sat_and_max (buildQuery ((MAX to_maximize (Just $ LReal 0)) : queries)) k (i, length guesses, Just . show . LReal $ 0) g) (zip toCheck ([1.. length toCheck]))
-        let withIndices' = zip gt0s (map snd satVals)
-            (gt0, lteq0)   = partition (fst3 . fst) withIndices'
-            (candidates) = if null gt0 then satVals else gt0
-            lo = maximum (map (snd3 . fst) candidates) -- lower bound known so far
-        if null gt0 then do
-          maybeInterval <- bin_search buildQuery queries to_maximize k (fromJust lo, 0) (map snd satVals) -- TODO: check fromJust here?
-          case maybeInterval of
-            Just ((b, Just lh, out), txs) -> pure $ Just (lh, out, txs)
-            _ -> pure Nothing
-        else do 
-          maybeBounds <- find_loose_bounds buildQuery queries to_maximize k lo (map snd gt0)
-          case maybeBounds of
-            Nothing -> pure Nothing
-            Just ((lo, hi), txs) -> do
-              maybeInterval <- bin_search buildQuery queries to_maximize k (lo, hi) txs
-              case maybeInterval of
-                Just ((b, Just lh, out), txs) -> pure $ Just (lh, out, txs)
-                _ -> pure Nothing
+        if null toCheck then pure Nothing else do
+          gt0s <- mapM (\(g,i)->check_sat_and_max (buildQuery ((MAX to_maximize (Just $ LReal 0)) : queries)) k (i, length guesses, Just . show . LReal $ 0) g) (zip toCheck ([1.. length toCheck]))
+          let withIndices' = zip gt0s (map snd satVals)
+              (gt0, lteq0)   = partition (fst3 . fst) withIndices'
+              (candidates) = if null gt0 then satVals else gt0
+              lo = maximum (map (snd3 . fst) candidates) -- lower bound known so far
+          if null gt0 then do
+            maybeInterval <- bin_search buildQuery queries to_maximize k (fromJust lo, 0) (map snd satVals) -- TODO: check fromJust here?
+            case maybeInterval of
+              Just ((b, Just lh, out), txs) -> pure $ Just (lh, out, txs)
+              _ -> pure Nothing
+          else do 
+            maybeBounds <- find_loose_bounds buildQuery queries to_maximize k lo (map snd gt0)
+            case maybeBounds of
+              Nothing -> pure Nothing
+              Just ((lo, hi), txs) -> do
+                maybeInterval <- bin_search buildQuery queries to_maximize k (lo, hi) txs
+                case maybeInterval of
+                  Just ((b, Just lh, out), txs) -> pure $ Just (lh, out, txs)
+                  _ -> pure Nothing
 
         where 
           find_loose_bounds buildQuery queries to_maximize k Nothing guesses = pure Nothing
