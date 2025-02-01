@@ -1,10 +1,15 @@
-TOKENS (t0, t1, t2)
-DEPTH 4
+SETOPT TEX
+TOKENS (t_0, t_1, t_2, t_3, t_4)
+DEPTH 3
 
-AMM t0t1 (8 : t0, 18 : t1)
-AMM t1t2 (16 : t1, 9 : t2)
-AMM t2t0 (36 : t2, 4 : t0)
+AMM t0t1 (12 : t_0, 12 : t_1)
+AMM t0t3 (18 : t_0,  8 : t_3)
+AMM t1t2 (8  : t_1, 18 : t_2)
+AMM t1t3 (12 : t_1, 12 : t_3)
+AMM t2t4 (12 : t_2, 12 : t_4)
+AMM t3t4 (6  : t_3, 24 : t_4)
 
-USER A (10 : t1)
+USER A (6 : t_0)
 
-MAX A.t0
+EF A.t_0 = 0 && A.t_1 = 0 && A.t_2 = 0 && A.t_3 = 0
+MAX A.t_4

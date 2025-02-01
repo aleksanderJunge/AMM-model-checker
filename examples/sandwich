@@ -1,12 +1,12 @@
-SETOPT DECIMAL
-TOKENS (t0, t1)
+TOKENS (t_0, t_1)
 DEPTH 3
 
-AMM t0t1 (16 : t0, 9 : t1)
-USER A   (6 : t0, 6 : t1)
-USER B   (6 : t0, 6 : t1)
+AMM t0t1 (8 : t_0, 18: t_1)
+USER A   (10 : t_0, 0 : t_1)
+USER B   (6 : t_0, 0 : t_1)
 
-AVAILABLE (B, 6 : t0, 4 : t1)
+AVAILABLE (B, 6 : t_0, 2 : t_1)
 FREE (A)
 
-MAX A.t0 + A.t1
+EF t0t1.t_0 = t0t1.t_1
+MAX A.t_0 + A.t_1
