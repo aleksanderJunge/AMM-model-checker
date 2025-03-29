@@ -6,7 +6,6 @@ import Data.Maybe
 import Symbolic.Sem
 import Symbolic.Utils
 import Symbolic.Interpreter.SymTab
-import Data.List.Split
 import Data.List
 import qualified Data.Map as M
 import Data.List.Extra
@@ -138,10 +137,20 @@ parse stab input =
         if sum1 /= sum2 then Left "Couldn't split a token due to parenthesis" else
         Right $ map (\l -> foldl (\(acc, j) (c, i) -> (acc ++ [c], i)) ("", 0) l) ts'
 
+    splitWhen :: [(Char, Int)] -> [[(Char, Int)]] -> [[(Char, Int)]]
+    splitWhen [] acc = acc
+    splitWhen unprocessed acc =
+      let idx = findIndex (\(c,i) -> elem c " \t\n") unprocessed in
+      if isJust idx then
+        let (tok, unproc) = splitAt (fromJust idx) unprocessed
+            unprocessed'  = drop 1 unproc in
+        splitWhen unprocessed' (acc ++ [tok])
+      else acc ++ [unprocessed]
+
     splitWhen' :: [(Char, Int)] -> Maybe [[(Char, Int)]]
     splitWhen' a
         | null a    = Nothing
-        | otherwise = Just $ splitWhen (\(c,i) -> elem c " \t\n") a 
+        | otherwise = Just $ splitWhen a []
 
 instance Read Opt where
     readsPrec _ ('S':'E':'T':'O':'P':'T':input) = 

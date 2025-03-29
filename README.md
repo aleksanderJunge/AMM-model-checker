@@ -3,13 +3,8 @@
 ### Requirements:
 
 * cabal
-* haskell (tested with compiler version: ghc 9.6.1)
+* haskell (tested with compiler version: ghc 9.6.1 & 9.10.1)
 * Z3: https://github.com/Z3Prover/z3
-
-as well as the Haskell library 'split'
-```
-cabal new-install --lib split
-```
 
 ### building project:
 
